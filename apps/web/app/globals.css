@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@theme {
+  /* ===== LIDOFACILE DESIGN SYSTEM ===== */
+  /* Basato sulla palette del logo: navy + gradiente cyan→blue + sabbia */
+
+  /* Colori brand */
+  --color-brand-navy: #0B1829;
+  --color-brand-navy-light: #0F2137;
+  --color-brand-cyan: #00F0B5;
+  --color-brand-cyan-light: #33F5C8;
+  --color-brand-azure: #00BFFF;
+  --color-brand-blue: #2563EB;
+  --color-brand-blue-dark: #1D4ED8;
+  --color-brand-sand: #C5A028;
+  --color-brand-sand-light: #F5E6A3;
+
+  /* Colori semantici - Light mode */
+  --color-background: #FAFBFC;
+  --color-foreground: #0B1829;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #0B1829;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #0B1829;
+  --color-primary: #0B1829;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F1F5F9;
+  --color-secondary-foreground: #0F172A;
+  --color-muted: #F1F5F9;
+  --color-muted-foreground: #64748B;
+  --color-accent: #00BFFF;
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-input: #E2E8F0;
+  --color-ring: #00BFFF;
+
+  /* Colori specifici spiaggia */
+  --color-sea: #00BFFF;
+  --color-sea-dark: #0B1829;
+  --color-sand: #F5E6A3;
+  --color-sand-dark: #C5A028;
+  --color-available: #22C55E;
+  --color-occupied: #EF4444;
+  --color-partial: #F59E0B;
+  --color-selected: #00BFFF;
+
+  /* Gradiente brand (onde del logo) */
+  --color-gradient-start: #00F0B5;
+  --color-gradient-mid: #00BFFF;
+  --color-gradient-end: #2563EB;
+
+  /* Sidebar dashboard */
+  --color-sidebar: #0B1829;
+  --color-sidebar-foreground: #E2E8F0;
+  --color-sidebar-accent: #0F2137;
+  --color-sidebar-accent-foreground: #00BFFF;
+  --color-sidebar-border: #1E3A5F;
+
+  /* Raggi */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+
+  /* Font */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #0B1829;
+    --color-foreground: #F1F5F9;
+    --color-card: #0F2137;
+    --color-card-foreground: #F1F5F9;
+    --color-popover: #0F2137;
+    --color-popover-foreground: #F1F5F9;
+    --color-primary: #00BFFF;
+    --color-primary-foreground: #0B1829;
+    --color-secondary: #1E3A5F;
+    --color-secondary-foreground: #F1F5F9;
+    --color-muted: #1E3A5F;
+    --color-muted-foreground: #94A3B8;
+    --color-accent: #00BFFF;
+    --color-accent-foreground: #0B1829;
+    --color-border: #1E3A5F;
+    --color-input: #1E3A5F;
+    --color-ring: #00BFFF;
+  }
+}
+
+/* ===== BASE STYLES ===== */
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Utility per gradiente brand (onde del logo) */
+.bg-brand-gradient {
+  background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-mid), var(--color-gradient-end));
+}
+
+.text-brand-gradient {
+  background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-mid), var(--color-gradient-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animazione onde (per landing page e header) */
+@keyframes wave {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(-25px); }
+  100% { transform: translateX(0); }
+}
+
+.animate-wave {
+  animation: wave 3s ease-in-out infinite;
+}
+
+.animate-wave-slow {
+  animation: wave 4s ease-in-out infinite;
+}
+
+/* Focus ring accessibile */
+*:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Scrollbar personalizzata */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-muted-foreground);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-foreground);
+}
