@@ -19,6 +19,7 @@ import {
   User,
   Phone,
   Mail,
+  Minus,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -38,9 +39,14 @@ interface MapElement {
   max_sunbeds: number;
   is_premium: boolean;
   is_active: boolean;
-  // enriched
   row_number?: number;
   price_cents?: number | null;
+}
+
+// Per ogni elemento selezionato teniamo traccia dei lettini scelti
+interface SelectedItem {
+  elementId: string;
+  sunbedsCount: number;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -63,9 +69,7 @@ const ELEMENT_LABELS: Record<string, string> = {
 
 interface BookingModalProps {
   establishmentId: string;
-  /** When opened from mappa page with pre-selected element */
   initialElementId?: string | null;
-  /** Date pre-selected on the map (passes through to step 1) */
   initialDate?: string;
   onClose: () => void;
   onSuccess: () => void;
@@ -86,29 +90,24 @@ export function BookingModal({
   const [step, setStep] = useState<1 | 2>(initialElementId ? 2 : 1);
   const [loading, setLoading] = useState(true);
 
-  // Map data
   const [rows, setRows] = useState<MapRow[]>([]);
   const [elements, setElements] = useState<MapElement[]>([]);
   const [occupiedIds, setOccupiedIds] = useState<Set<string>>(new Set());
 
-  // Date selection — inizializzate con la data della mappa se passata
   const [startDate, setStartDate] = useState(defaultDate);
   const [endDate, setEndDate] = useState(defaultDate);
 
-  // Selected element
-  const [selectedId, setSelectedId] = useState<string | null>(
-    initialElementId || null
+  // Selezione MULTIPLA: array di { elementId, sunbedsCount }
+  const [selectedItems, setSelectedItems] = useState<SelectedItem[]>(
+    initialElementId ? [{ elementId: initialElementId, sunbedsCount: 2 }] : []
   );
-  const [sunbedsCount, setSunbedsCount] = useState(2);
 
-  // Customer form
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [totalOverride, setTotalOverride] = useState("");
 
-  // Saving
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -134,10 +133,7 @@ export function BookingModal({
       .eq("is_active", true)
       .limit(1);
 
-    if (!maps?.length) {
-      setLoading(false);
-      return;
-    }
+    if (!maps?.length) { setLoading(false); return; }
     const mapId = maps[0].id;
 
     const { data: rowsData } = await supabase
@@ -148,39 +144,26 @@ export function BookingModal({
 
     setRows(rowsData || []);
     const rowIds = rowsData?.map((r) => r.id) || [];
-    if (!rowIds.length) {
-      setLoading(false);
-      return;
-    }
+    if (!rowIds.length) { setLoading(false); return; }
 
     const { data: elsData } = await supabase
       .from("map_elements")
-      .select(
-        "id, map_row_id, element_type, label, position_x, max_sunbeds, is_premium, is_active"
-      )
+      .select("id, map_row_id, element_type, label, position_x, max_sunbeds, is_premium, is_active")
       .in("map_row_id", rowIds)
       .eq("is_active", true)
       .order("position_x");
 
-    // Load pricing rules (full_day)
     const { data: rulesData } = await supabase
       .from("pricing_rules")
       .select("row_number, price_cents, duration_type")
       .eq("establishment_id", establishmentId)
       .eq("duration_type", "full_day");
 
-    // Enrich elements with row_number + price
-    const rowMap = new Map(
-      (rowsData || []).map((r) => [r.id, r.row_number])
-    );
+    const rowMap = new Map((rowsData || []).map((r) => [r.id, r.row_number]));
     const enriched = (elsData || []).map((el) => {
       const rowNum = rowMap.get(el.map_row_id) || 0;
       const rule = rulesData?.find((r) => r.row_number === rowNum);
-      return {
-        ...el,
-        row_number: rowNum,
-        price_cents: rule?.price_cents ?? null,
-      };
+      return { ...el, row_number: rowNum, price_cents: rule?.price_cents ?? null };
     });
 
     setElements(enriched);
@@ -188,7 +171,9 @@ export function BookingModal({
 
     if (initialElementId) {
       const el = enriched.find((e) => e.id === initialElementId);
-      if (el) setSunbedsCount(Math.min(2, el.max_sunbeds));
+      if (el) {
+        setSelectedItems([{ elementId: initialElementId, sunbedsCount: Math.min(2, el.max_sunbeds) }]);
+      }
     }
   }
 
@@ -210,7 +195,40 @@ export function BookingModal({
     setOccupiedIds(occupied);
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Selection helpers ─────────────────────────────────────────────────────
+
+  function isSelected(elementId: string): boolean {
+    return selectedItems.some((i) => i.elementId === elementId);
+  }
+
+  function toggleElement(el: MapElement) {
+    if (occupiedIds.has(el.id)) return;
+
+    if (isSelected(el.id)) {
+      // Deseleziona
+      setSelectedItems((prev) => prev.filter((i) => i.elementId !== el.id));
+    } else {
+      // Aggiungi
+      setSelectedItems((prev) => [
+        ...prev,
+        { elementId: el.id, sunbedsCount: Math.min(2, el.max_sunbeds) },
+      ]);
+    }
+    setTotalOverride("");
+  }
+
+  function updateSunbeds(elementId: string, count: number) {
+    setSelectedItems((prev) =>
+      prev.map((i) => i.elementId === elementId ? { ...i, sunbedsCount: count } : i)
+    );
+  }
+
+  function removeItem(elementId: string) {
+    setSelectedItems((prev) => prev.filter((i) => i.elementId !== elementId));
+    setTotalOverride("");
+  }
+
+  // ── Price helpers ─────────────────────────────────────────────────────────
 
   function getDays(): number {
     const start = new Date(startDate);
@@ -218,10 +236,15 @@ export function BookingModal({
     return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
   }
 
+  function getElementPriceCents(elementId: string): number {
+    const el = elements.find((e) => e.id === elementId);
+    return el?.price_cents ?? 0;
+  }
+
   function getAutoTotal(): number {
-    const el = elements.find((e) => e.id === selectedId);
-    if (!el?.price_cents) return 0;
-    return (el.price_cents * getDays()) / 100;
+    return selectedItems.reduce((sum, item) => {
+      return sum + (getElementPriceCents(item.elementId) * getDays()) / 100;
+    }, 0);
   }
 
   function getDisplayTotal(): number {
@@ -229,20 +252,10 @@ export function BookingModal({
     return getAutoTotal();
   }
 
-  function selectElement(el: MapElement) {
-    if (occupiedIds.has(el.id)) return;
-    setSelectedId(el.id);
-    setSunbedsCount(Math.min(2, el.max_sunbeds));
-    setTotalOverride("");
-  }
-
-  const selectedEl = elements.find((e) => e.id === selectedId);
-  const selectedRow = rows.find((r) => r.id === selectedEl?.map_row_id);
-
   // ── Save ──────────────────────────────────────────────────────────────────
 
   async function handleSave() {
-    if (!selectedId || !guestName || !guestPhone) return;
+    if (!selectedItems.length || !guestName || !guestPhone) return;
     setSaving(true);
     setSaveError("");
 
@@ -275,12 +288,15 @@ export function BookingModal({
         return;
       }
 
-      await supabase.from("booking_items").insert({
+      // Inserisci un booking_item per ogni elemento selezionato
+      const bookingItems = selectedItems.map((item) => ({
         booking_id: booking.id,
-        map_element_id: selectedId,
-        sunbeds_count: sunbedsCount,
-        price_cents: totalCents,
-      });
+        map_element_id: item.elementId,
+        sunbeds_count: item.sunbedsCount,
+        price_cents: Math.round(getElementPriceCents(item.elementId) * getDays()),
+      }));
+
+      await supabase.from("booking_items").insert(bookingItems);
 
       onSuccess();
     } catch {
@@ -295,52 +311,40 @@ export function BookingModal({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 py-8">
       <div className="w-full max-w-2xl rounded-xl bg-background shadow-xl">
+
         {/* Header */}
         <div className="flex items-center justify-between border-b p-5">
           <div>
             <h2 className="text-lg font-bold">Nuova prenotazione manuale</h2>
             <p className="text-sm text-muted-foreground">
-              {step === 1
-                ? "Scegli il posto sulla mappa"
-                : "Inserisci i dati del cliente"}
+              {step === 1 ? "Clicca uno o più posti sulla mappa" : "Inserisci i dati del cliente"}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 hover:bg-muted"
-          >
+          <button onClick={onClose} className="rounded-md p-1 hover:bg-muted">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Step indicator */}
         <div className="flex items-center gap-3 border-b px-5 py-3">
-          {[
-            { n: 1, label: "Mappa e date" },
-            { n: 2, label: "Dati cliente" },
-          ].map(({ n, label }) => (
+          {[{ n: 1, label: "Mappa e date" }, { n: 2, label: "Dati cliente" }].map(({ n, label }) => (
             <div key={n} className="flex items-center gap-2">
-              <div
-                className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
-                  n < step
-                    ? "bg-available text-white"
-                    : n === step
-                      ? "bg-brand-azure text-white"
-                      : "bg-muted text-muted-foreground"
-                }`}
-              >
+              <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                n < step ? "bg-available text-white" :
+                n === step ? "bg-brand-azure text-white" :
+                "bg-muted text-muted-foreground"
+              }`}>
                 {n < step ? <Check className="h-3 w-3" /> : n}
               </div>
-              <span
-                className={`text-sm ${n === step ? "font-medium" : "text-muted-foreground"}`}
-              >
-                {label}
-              </span>
-              {n < 2 && (
-                <ArrowRight className="h-3 w-3 text-muted-foreground" />
-              )}
+              <span className={`text-sm ${n === step ? "font-medium" : "text-muted-foreground"}`}>{label}</span>
+              {n < 2 && <ArrowRight className="h-3 w-3 text-muted-foreground" />}
             </div>
           ))}
+          {selectedItems.length > 0 && (
+            <span className="ml-auto rounded-full bg-brand-azure/10 px-2 py-0.5 text-xs font-medium text-brand-azure">
+              {selectedItems.length} {selectedItems.length === 1 ? "posto" : "posti"} selezionati
+            </span>
+          )}
         </div>
 
         <div className="p-5">
@@ -349,33 +353,28 @@ export function BookingModal({
               <Loader2 className="h-8 w-8 animate-spin text-brand-azure" />
             </div>
           ) : step === 1 ? (
-            /* ── STEP 1: Visual map ─────────────────────────────────────── */
+            /* ── STEP 1: Mappa multi-selezione ──────────────────────────── */
             <div className="space-y-4">
-              {/* Date range picker */}
+              {/* Date range */}
               <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
                 <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="flex flex-1 flex-wrap items-end gap-2">
                   <div className="min-w-[120px] flex-1">
-                    <label className="mb-0.5 block text-xs text-muted-foreground">
-                      Dal
-                    </label>
+                    <label className="mb-0.5 block text-xs text-muted-foreground">Dal</label>
                     <Input
                       type="date"
                       value={startDate}
                       min={today}
                       onChange={(e) => {
                         setStartDate(e.target.value);
-                        if (e.target.value > endDate)
-                          setEndDate(e.target.value);
+                        if (e.target.value > endDate) setEndDate(e.target.value);
                       }}
                       className="h-8 text-sm"
                     />
                   </div>
                   <span className="pb-1 text-muted-foreground">→</span>
                   <div className="min-w-[120px] flex-1">
-                    <label className="mb-0.5 block text-xs text-muted-foreground">
-                      Al
-                    </label>
+                    <label className="mb-0.5 block text-xs text-muted-foreground">Al</label>
                     <Input
                       type="date"
                       value={endDate}
@@ -390,11 +389,15 @@ export function BookingModal({
                 </div>
               </div>
 
-              {/* Legend */}
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              {/* Legenda */}
+              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <span className="h-3 w-3 rounded-sm border-2 border-available/60 bg-available/15" />
-                  Disponibile (clicca per scegliere)
+                  Disponibile — clicca per selezionare
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-3 w-3 rounded-sm border-2 border-brand-azure bg-brand-azure/15" />
+                  Selezionato — clicca per deselezionare
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-3 w-3 rounded-sm border-2 border-partial/60 bg-partial/15" />
@@ -402,12 +405,11 @@ export function BookingModal({
                 </span>
               </div>
 
-              {/* Map */}
-              <div className="max-h-[45vh] overflow-auto rounded-lg border bg-gradient-to-b from-brand-cyan/5 to-transparent p-4">
+              {/* Mappa */}
+              <div className="max-h-[40vh] overflow-auto rounded-lg border bg-gradient-to-b from-brand-cyan/5 to-transparent p-4">
                 <div className="mb-4 rounded-lg bg-gradient-to-r from-brand-cyan/15 via-brand-azure/15 to-brand-blue/15 py-2 text-center text-xs font-medium text-brand-azure">
                   ▲ MARE
                 </div>
-
                 {rows.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     Mappa vuota. Aggiungila prima nella sezione Mappa.
@@ -418,31 +420,20 @@ export function BookingModal({
                       const rowEls = elements
                         .filter((e) => e.map_row_id === row.id)
                         .sort((a, b) => a.position_x - b.position_x);
-                      const freeCount = rowEls.filter(
-                        (e) => !occupiedIds.has(e.id)
-                      ).length;
+                      const freeCount = rowEls.filter((e) => !occupiedIds.has(e.id)).length;
 
                       return (
                         <div key={row.id}>
                           <div className="mb-1.5 flex items-center justify-between">
-                            <span className="text-xs font-semibold text-muted-foreground">
-                              {row.label}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {freeCount} liberi
-                            </span>
+                            <span className="text-xs font-semibold text-muted-foreground">{row.label}</span>
+                            <span className="text-xs text-muted-foreground">{freeCount} liberi</span>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             {rowEls.map((el) => {
                               const isOccupied = occupiedIds.has(el.id);
-                              const isSelected = selectedId === el.id;
-                              const isBig =
-                                el.element_type === "cabana" ||
-                                el.element_type === "gazebo";
-                              const ElIcon =
-                                ELEMENT_ICONS[
-                                  el.element_type as keyof typeof ELEMENT_ICONS
-                                ] || Umbrella;
+                              const isSel = isSelected(el.id);
+                              const isBig = el.element_type === "cabana" || el.element_type === "gazebo";
+                              const ElIcon = ELEMENT_ICONS[el.element_type as keyof typeof ELEMENT_ICONS] || Umbrella;
                               const priceStr = el.price_cents
                                 ? `€${(el.price_cents / 100).toFixed(0)}`
                                 : null;
@@ -450,29 +441,26 @@ export function BookingModal({
                               return (
                                 <button
                                   key={el.id}
-                                  onClick={() => !isOccupied && selectElement(el)}
+                                  onClick={() => !isOccupied && toggleElement(el)}
                                   disabled={isOccupied}
                                   title={`${ELEMENT_LABELS[el.element_type] || el.element_type} ${el.label}${priceStr ? ` — ${priceStr}/giorno` : ""}`}
-                                  className={`flex ${isBig ? "h-16 w-20" : "h-14 w-14"} flex-col items-center justify-center gap-0.5 rounded-lg border-2 text-xs font-medium transition-all ${
-                                    isSelected
-                                      ? "scale-110 border-brand-azure bg-brand-azure/15 text-brand-azure ring-2 ring-brand-azure/30"
+                                  className={`relative flex ${isBig ? "h-16 w-20" : "h-14 w-14"} flex-col items-center justify-center gap-0.5 rounded-lg border-2 text-xs font-medium transition-all ${
+                                    isSel
+                                      ? "scale-105 border-brand-azure bg-brand-azure/15 text-brand-azure ring-2 ring-brand-azure/40"
                                       : isOccupied
                                         ? "cursor-not-allowed border-partial/40 bg-partial/10 text-partial/50 opacity-60"
                                         : "cursor-pointer border-available/50 bg-available/10 text-available hover:scale-105 hover:bg-available/20"
                                   }`}
                                 >
+                                  {isSel && (
+                                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-azure text-[10px] text-white">
+                                      <Check className="h-2.5 w-2.5" />
+                                    </span>
+                                  )}
                                   <ElIcon className="h-4 w-4" />
                                   <span>{el.label}</span>
                                   {priceStr && (
-                                    <span
-                                      className={`text-[10px] ${
-                                        isSelected
-                                          ? "text-brand-azure"
-                                          : isOccupied
-                                            ? "text-partial/40"
-                                            : "text-available/80"
-                                      }`}
-                                    >
+                                    <span className={`text-[10px] ${isSel ? "text-brand-azure" : isOccupied ? "text-partial/40" : "text-available/80"}`}>
                                       {priceStr}
                                     </span>
                                   )}
@@ -487,52 +475,78 @@ export function BookingModal({
                 )}
               </div>
 
-              {/* Selected element summary */}
-              {selectedEl ? (
-                <div className="flex items-center justify-between rounded-lg border border-brand-azure/30 bg-brand-azure/5 p-3">
-                  <div className="flex items-center gap-2">
-                    {(() => {
-                      const Ic =
-                        ELEMENT_ICONS[
-                          selectedEl.element_type as keyof typeof ELEMENT_ICONS
-                        ] || Umbrella;
-                      return <Ic className="h-5 w-5 text-brand-azure" />;
-                    })()}
-                    <div>
-                      <p className="text-sm font-medium">
-                        {ELEMENT_LABELS[selectedEl.element_type] || "Elemento"}{" "}
-                        {selectedEl.label}
-                        {selectedRow && (
-                          <span className="ml-1.5 font-normal text-muted-foreground">
-                            — {selectedRow.label}
-                          </span>
-                        )}
-                      </p>
-                      {selectedEl.price_cents && (
-                        <p className="text-xs text-muted-foreground">
-                          €{(selectedEl.price_cents / 100).toFixed(2)}/giorno ×{" "}
-                          {getDays()} {getDays() === 1 ? "giorno" : "giorni"}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xl font-bold text-brand-azure">
-                      €{getAutoTotal().toFixed(2)}
+              {/* Carrello selezione con totale live */}
+              {selectedItems.length > 0 ? (
+                <div className="rounded-lg border border-brand-azure/30 bg-brand-azure/5">
+                  <div className="border-b border-brand-azure/20 px-4 py-2">
+                    <p className="text-sm font-semibold text-brand-azure">
+                      Selezione ({selectedItems.length} {selectedItems.length === 1 ? "posto" : "posti"})
                     </p>
-                    <p className="text-xs text-muted-foreground">totale</p>
+                  </div>
+                  <div className="divide-y divide-brand-azure/10">
+                    {selectedItems.map((item) => {
+                      const el = elements.find((e) => e.id === item.elementId);
+                      if (!el) return null;
+                      const row = rows.find((r) => r.id === el.map_row_id);
+                      const ElIcon = ELEMENT_ICONS[el.element_type as keyof typeof ELEMENT_ICONS] || Umbrella;
+                      const itemTotal = (getElementPriceCents(item.elementId) * getDays()) / 100;
+
+                      return (
+                        <div key={item.elementId} className="flex items-center gap-3 px-4 py-2.5">
+                          <ElIcon className="h-4 w-4 shrink-0 text-brand-azure" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium">
+                              {ELEMENT_LABELS[el.element_type] || "Elemento"} {el.label}
+                            </span>
+                            {row && (
+                              <span className="ml-1.5 text-xs text-muted-foreground">— {row.label}</span>
+                            )}
+                            {el.max_sunbeds > 1 && (
+                              <div className="mt-1 flex items-center gap-1.5">
+                                <span className="text-xs text-muted-foreground">Lettini:</span>
+                                <select
+                                  className="h-6 rounded border border-input bg-background px-1 text-xs"
+                                  value={item.sunbedsCount}
+                                  onChange={(e) => updateSunbeds(item.elementId, parseInt(e.target.value))}
+                                >
+                                  {Array.from({ length: el.max_sunbeds }, (_, i) => i + 1).map((n) => (
+                                    <option key={n} value={n}>{n}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-brand-azure">
+                              {itemTotal > 0 ? `€${itemTotal.toFixed(2)}` : "—"}
+                            </span>
+                            <button
+                              onClick={() => removeItem(item.elementId)}
+                              className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Minus className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Totale live */}
+                  <div className="flex items-center justify-between rounded-b-lg border-t border-brand-azure/20 bg-brand-azure/10 px-4 py-3">
+                    <span className="text-sm font-medium">Totale {getDays()} {getDays() === 1 ? "giorno" : "giorni"}</span>
+                    <span className="text-xl font-bold text-brand-azure">€{getAutoTotal().toFixed(2)}</span>
                   </div>
                 </div>
               ) : (
                 <p className="text-center text-sm text-muted-foreground">
-                  Tocca un posto verde per selezionarlo.
+                  Tocca un posto verde per aggiungerlo. Puoi selezionarne più di uno.
                 </p>
               )}
 
               <Button
                 variant="brand"
                 className="w-full"
-                disabled={!selectedId}
+                disabled={selectedItems.length === 0}
                 onClick={() => setStep(2)}
               >
                 Continua — Dati cliente
@@ -540,55 +554,41 @@ export function BookingModal({
               </Button>
             </div>
           ) : (
-            /* ── STEP 2: Customer form ──────────────────────────────────── */
+            /* ── STEP 2: Dati cliente ──────────────────────────────────── */
             <div className="space-y-4">
-              {/* Compact summary of selected element + dates */}
-              {selectedEl && (
-                <div className="flex items-center justify-between rounded-lg bg-muted/50 p-3">
-                  <div className="flex items-center gap-2">
-                    {(() => {
-                      const Ic =
-                        ELEMENT_ICONS[
-                          selectedEl.element_type as keyof typeof ELEMENT_ICONS
-                        ] || Umbrella;
-                      return <Ic className="h-4 w-4 text-muted-foreground" />;
-                    })()}
-                    <div>
-                      <p className="text-sm font-medium">
-                        {ELEMENT_LABELS[selectedEl.element_type] || "Elemento"}{" "}
-                        {selectedEl.label}
-                        {selectedRow && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            — {selectedRow.label}
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {startDate === endDate
-                          ? startDate
-                          : `${startDate} → ${endDate}`}{" "}
-                        ({getDays()} {getDays() === 1 ? "giorno" : "giorni"})
-                      </p>
-                    </div>
-                  </div>
+              {/* Riepilogo selezione compatto */}
+              <div className="rounded-lg bg-muted/50 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-medium">
+                    {selectedItems.length} {selectedItems.length === 1 ? "posto" : "posti"} ·{" "}
+                    {startDate === endDate ? startDate : `${startDate} → ${endDate}`} ({getDays()} {getDays() === 1 ? "giorno" : "giorni"})
+                  </p>
                   {!initialElementId && (
-                    <button
-                      onClick={() => setStep(1)}
-                      className="text-xs text-brand-azure hover:underline"
-                    >
+                    <button onClick={() => setStep(1)} className="text-xs text-brand-azure hover:underline">
                       Cambia
                     </button>
                   )}
                 </div>
-              )}
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedItems.map((item) => {
+                    const el = elements.find((e) => e.id === item.elementId);
+                    if (!el) return null;
+                    const ElIcon = ELEMENT_ICONS[el.element_type as keyof typeof ELEMENT_ICONS] || Umbrella;
+                    return (
+                      <span key={item.elementId} className="flex items-center gap-1 rounded-md bg-brand-azure/10 px-2 py-0.5 text-xs text-brand-azure">
+                        <ElIcon className="h-3 w-3" />
+                        {el.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
 
               {saveError && (
-                <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {saveError}
-                </div>
+                <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{saveError}</div>
               )}
 
-              {/* Form fields */}
+              {/* Form */}
               <div className="space-y-3">
                 <div>
                   <label className="mb-1 flex items-center gap-1.5 text-sm font-medium">
@@ -628,31 +628,6 @@ export function BookingModal({
                   </div>
                 </div>
 
-                {/* Lettini count (only for elements with capacity > 1) */}
-                {selectedEl && selectedEl.max_sunbeds > 1 && (
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">
-                      Numero lettini (max {selectedEl.max_sunbeds})
-                    </label>
-                    <select
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={sunbedsCount}
-                      onChange={(e) =>
-                        setSunbedsCount(parseInt(e.target.value))
-                      }
-                    >
-                      {Array.from(
-                        { length: selectedEl.max_sunbeds },
-                        (_, i) => i + 1
-                      ).map((n) => (
-                        <option key={n} value={n}>
-                          {n} lettino{n > 1 ? "i" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
                 <div>
                   <label className="mb-1 flex items-center gap-1.5 text-sm font-medium">
                     <Euro className="h-3.5 w-3.5 text-muted-foreground" />
@@ -668,16 +643,13 @@ export function BookingModal({
                   />
                   {getAutoTotal() > 0 && totalOverride === "" && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Calcolato: €{getAutoTotal().toFixed(2)} — modifica solo
-                      se necessario
+                      Calcolato: €{getAutoTotal().toFixed(2)} — modifica solo se necessario
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Note interne
-                  </label>
+                  <label className="mb-1 block text-sm font-medium">Note interne</label>
                   <Input
                     placeholder="Es. cliente abituale, richieste speciali..."
                     value={notes}
@@ -686,37 +658,31 @@ export function BookingModal({
                 </div>
               </div>
 
-              {/* Preview summary */}
+              {/* Anteprima completa */}
               <div className="rounded-lg border border-brand-azure/20 bg-brand-azure/5 p-4">
-                <p className="mb-3 text-sm font-semibold text-brand-azure">
-                  Anteprima prenotazione
-                </p>
+                <p className="mb-3 text-sm font-semibold text-brand-azure">Anteprima prenotazione</p>
                 <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Posto</span>
-                    <span className="font-medium">
-                      {selectedEl
-                        ? `${ELEMENT_LABELS[selectedEl.element_type] || "Elemento"} ${selectedEl.label}`
-                        : "—"}
-                      {selectedRow && (
-                        <span className="font-normal text-muted-foreground">
-                          {" "}
-                          — {selectedRow.label}
+                  {selectedItems.map((item) => {
+                    const el = elements.find((e) => e.id === item.elementId);
+                    if (!el) return null;
+                    const row = rows.find((r) => r.id === el.map_row_id);
+                    const ElIcon = ELEMENT_ICONS[el.element_type as keyof typeof ELEMENT_ICONS] || Umbrella;
+                    const itemTotal = (getElementPriceCents(item.elementId) * getDays()) / 100;
+                    return (
+                      <div key={item.elementId} className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <ElIcon className="h-3.5 w-3.5" />
+                          {ELEMENT_LABELS[el.element_type] || "Elemento"} {el.label}
+                          {row && <span className="text-xs">— {row.label}</span>}
+                          {el.max_sunbeds > 1 && <span className="text-xs">· {item.sunbedsCount} lettini</span>}
                         </span>
-                      )}
-                    </span>
-                  </div>
+                        <span>{itemTotal > 0 ? `€${itemTotal.toFixed(2)}` : "—"}</span>
+                      </div>
+                    );
+                  })}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Date</span>
-                    <span>
-                      {startDate === endDate
-                        ? startDate
-                        : `${startDate} → ${endDate}`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Giorni</span>
-                    <span>{getDays()}</span>
+                    <span>{startDate === endDate ? startDate : `${startDate} → ${endDate}`}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Cliente</span>
@@ -728,13 +694,11 @@ export function BookingModal({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Pagamento</span>
-                    <span>In loco (contanti/pos)</span>
+                    <span>In loco</span>
                   </div>
                   <div className="mt-2 flex justify-between border-t pt-2 text-base font-bold">
                     <span>Totale</span>
-                    <span className="text-brand-azure">
-                      €{getDisplayTotal().toFixed(2)}
-                    </span>
+                    <span className="text-brand-azure">€{getDisplayTotal().toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -747,14 +711,12 @@ export function BookingModal({
                   </Button>
                 )}
                 {initialElementId && (
-                  <Button variant="outline" onClick={onClose}>
-                    Annulla
-                  </Button>
+                  <Button variant="outline" onClick={onClose}>Annulla</Button>
                 )}
                 <Button
                   variant="brand"
                   className="flex-1"
-                  disabled={saving || !guestName || !guestPhone || !selectedId}
+                  disabled={saving || !guestName || !guestPhone || selectedItems.length === 0}
                   onClick={handleSave}
                 >
                   {saving ? (
