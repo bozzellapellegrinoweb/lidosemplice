@@ -212,7 +212,7 @@ export default function PrenotazioniPage() {
 
     if (data && data.length > 0) {
       const newest = data[0];
-      if (lastBookingTimestampRef.current && newest.created_at > lastBookingTimestampRef.current) {
+      if (lastBookingTimestampRef.current && new Date(newest.created_at) > new Date(lastBookingTimestampRef.current)) {
         loadBookings();
         triggerBookingAlert({ guest_name: newest.guest_name || "Cliente", start_date: newest.start_date, end_date: newest.end_date, total_cents: newest.total_cents, booking_code: newest.booking_code });
       }

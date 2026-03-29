@@ -168,7 +168,7 @@ export default function OrdiniBarPage() {
 
     if (data && data.length > 0) {
       const newest = data[0];
-      if (lastOrderTimestampRef.current && newest.created_at > lastOrderTimestampRef.current) {
+      if (lastOrderTimestampRef.current && new Date(newest.created_at) > new Date(lastOrderTimestampRef.current)) {
         loadOrders();
         triggerAlert({ id: newest.id, umbrella_label: newest.umbrella_label || "?", guest_name: newest.guest_name || "Cliente", total_cents: newest.total_cents, notes: newest.notes });
       }
