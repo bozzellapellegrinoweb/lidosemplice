@@ -114,7 +114,7 @@ export default function BookingPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
-  const [selectedServices, setSelectedServices] = useState<Set<string>>(new Set());
+  const [serviceQtys, setServiceQtys] = useState<Record<string, number>>({});
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
@@ -122,6 +122,7 @@ export default function BookingPage() {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"stripe" | "paypal" | "onsite">("stripe");
   const [paypalEnabled, setPaypalEnabled] = useState(false);
+  const [bookingConfirmed, setBookingConfirmed] = useState<{ code: string; total: number } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -263,12 +264,15 @@ export default function BookingPage() {
     );
   }
 
-  function toggleService(serviceId: string) {
-    setSelectedServices((prev) => {
-      const next = new Set(prev);
-      if (next.has(serviceId)) next.delete(serviceId);
-      else next.add(serviceId);
-      return next;
+  function adjustServiceQty(serviceId: string, delta: number) {
+    setServiceQtys((prev) => {
+      const current = prev[serviceId] || 0;
+      const next = Math.max(0, current + delta);
+      if (next === 0) {
+        const { [serviceId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [serviceId]: next };
     });
   }
 
@@ -328,8 +332,7 @@ export default function BookingPage() {
   );
 
   const servicesTotal = services
-    .filter((s) => selectedServices.has(s.id))
-    .reduce((sum, s) => sum + (s.price_cents / 100) * days, 0);
+    .reduce((sum, s) => sum + (s.price_cents / 100) * (serviceQtys[s.id] || 0) * days, 0);
 
   const total = umbrellaTotal + servicesTotal;
 
@@ -376,13 +379,13 @@ export default function BookingPage() {
 
     await supabase.from("booking_items").insert(items);
 
-    // Insert booking services
+    // Insert booking services (con quantità)
     const bookingServices = services
-      .filter((s) => selectedServices.has(s.id))
+      .filter((s) => (serviceQtys[s.id] || 0) > 0)
       .map((s) => ({
         booking_id: booking.id,
         service_id: s.id,
-        quantity: 1,
+        quantity: serviceQtys[s.id],
         price_cents: s.price_cents * days,
       }));
 
@@ -397,9 +400,38 @@ export default function BookingPage() {
       body: JSON.stringify({ bookingId: booking.id }),
     }).catch(console.error);
 
-    // Show confirmation
-    alert(`Prenotazione confermata! Codice: ${bookingCode}\nRiceverai un email con il QR code.`);
-    router.push(`/lido/${slug}`);
+    // Mostra schermata di conferma (niente alert() nativo che viene bloccato su mobile)
+    setBookingConfirmed({ code: bookingCode, total: Math.round(total * 100) });
+  }
+
+  // Schermata di conferma prenotazione completata
+  if (bookingConfirmed) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="w-full max-w-sm text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-available/15">
+            <Check className="h-10 w-10 text-available" />
+          </div>
+          <h1 className="mb-2 text-2xl font-black">Prenotazione confermata!</h1>
+          <p className="mb-6 text-muted-foreground">
+            Riceverai una email con il QR code per il check-in.
+          </p>
+          <div className="mb-6 rounded-xl border bg-muted/50 p-5 text-left space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Codice prenotazione</span>
+              <span className="font-mono font-bold text-brand-azure">{bookingConfirmed.code}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Totale pagato</span>
+              <span className="text-lg font-black">{(bookingConfirmed.total / 100).toFixed(2)}&euro;</span>
+            </div>
+          </div>
+          <Button variant="brand" size="xl" className="w-full" onClick={() => router.push(`/lido/${slug}`)}>
+            Torna alla pagina del lido
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   if (loading) {
@@ -636,15 +668,12 @@ export default function BookingPage() {
                     </p>
                   ) : (
                     services.map((service) => {
-                      const isSelected = selectedServices.has(service.id);
+                      const qty = serviceQtys[service.id] || 0;
                       return (
-                        <button
+                        <div
                           key={service.id}
-                          onClick={() => toggleService(service.id)}
-                          className={`flex w-full items-center justify-between rounded-lg border-2 p-4 text-left transition-all ${
-                            isSelected
-                              ? "border-brand-azure bg-brand-azure/5"
-                              : "border-border hover:border-brand-azure/30"
+                          className={`flex items-center justify-between rounded-lg border-2 p-4 transition-all ${
+                            qty > 0 ? "border-brand-azure bg-brand-azure/5" : "border-border"
                           }`}
                         >
                           <div>
@@ -653,14 +682,24 @@ export default function BookingPage() {
                               {(service.price_cents / 100).toFixed(2)}&euro;/giorno
                             </p>
                           </div>
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-full ${
-                              isSelected ? "bg-brand-azure text-white" : "border-2 border-border"
-                            }`}
-                          >
-                            {isSelected && <Check className="h-4 w-4" />}
+                          {/* Contatore quantità */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => adjustServiceQty(service.id, -1)}
+                              disabled={qty === 0}
+                              className="flex h-8 w-8 items-center justify-center rounded-md border hover:bg-muted disabled:opacity-30"
+                            >
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <span className="w-6 text-center font-bold">{qty}</span>
+                            <button
+                              onClick={() => adjustServiceQty(service.id, 1)}
+                              className="flex h-8 w-8 items-center justify-center rounded-md border hover:bg-muted"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
                           </div>
-                        </button>
+                        </div>
                       );
                     })
                   )}
@@ -822,12 +861,12 @@ export default function BookingPage() {
                     })}
 
                     {services
-                      .filter((s) => selectedServices.has(s.id))
+                      .filter((s) => (serviceQtys[s.id] || 0) > 0)
                       .map((service) => (
                         <div key={service.id} className="flex items-center justify-between text-sm">
-                          <span>{service.name}</span>
+                          <span>{service.name} ×{serviceQtys[service.id]}</span>
                           <span className="font-medium">
-                            {((service.price_cents / 100) * days).toFixed(2)}&euro;
+                            {((service.price_cents / 100) * (serviceQtys[service.id] || 0) * days).toFixed(2)}&euro;
                           </span>
                         </div>
                       ))}
