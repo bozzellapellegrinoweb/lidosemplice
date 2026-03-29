@@ -193,7 +193,7 @@ export default function NuovoStabilimentoPage() {
               beach_map_id: beachMap.id,
               row_number: i + 1,
               label: rowDef.label,
-              distance_from_shore: (i + 1) * 5,
+              distance_from_sea: `${(i + 1) * 5}m`,
             })
             .select("id")
             .single();
@@ -224,6 +224,7 @@ export default function NuovoStabilimentoPage() {
           season_type: "high",
           start_date: seasonStart,
           end_date: seasonEnd,
+          year: 2026,
         })
         .select("id")
         .single();
