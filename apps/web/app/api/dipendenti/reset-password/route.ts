@@ -27,16 +27,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Controlla che chi chiama sia admin dello stabilimento
-    const { data: membership } = await supabase
-      .from("establishment_members")
-      .select("role")
-      .eq("establishment_id", establishment_id)
-      .eq("user_id", user.id)
+    // Controlla autorizzazione: proprietario O membro admin
+    const { data: establishment } = await supabase
+      .from("establishments")
+      .select("id, owner_id")
+      .eq("id", establishment_id)
       .single();
 
-    if (!membership || membership.role !== "admin") {
-      return NextResponse.json({ error: "Non autorizzato." }, { status: 403 });
+    if (!establishment) {
+      return NextResponse.json({ error: "Stabilimento non trovato." }, { status: 404 });
+    }
+
+    const isOwner = establishment.owner_id === user.id;
+
+    if (!isOwner) {
+      const { data: membership } = await supabase
+        .from("establishment_members")
+        .select("role")
+        .eq("establishment_id", establishment_id)
+        .eq("user_id", user.id)
+        .single();
+
+      if (!membership || membership.role !== "admin") {
+        return NextResponse.json({ error: "Non autorizzato." }, { status: 403 });
+      }
     }
 
     // Controlla che il target sia un membro dello stesso stabilimento
