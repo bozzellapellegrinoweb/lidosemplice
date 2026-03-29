@@ -764,8 +764,8 @@ export default function BookingPage() {
                   <Button
                     variant="brand"
                     size="xl"
-                    className="w-full"
-                    disabled={submitting || !guestName || !guestEmail || !startDate || !endDate}
+                    className={`w-full ${paymentMethod === "onsite" ? "!bg-green-600 hover:!bg-green-700" : ""}`}
+                    disabled={submitting || !guestName || !startDate || !endDate || (paymentMethod !== "onsite" && !guestEmail)}
                     onClick={handleBooking}
                   >
                     {submitting ? (

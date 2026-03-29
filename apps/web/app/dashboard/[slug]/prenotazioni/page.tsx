@@ -26,6 +26,24 @@ import {
 // MapElement type kept for internal use
 
 import { createClient } from "@/lib/supabase/client";
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+    oscillator.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+    gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + 0.5);
+  } catch {}
+}
 import { BookingModal } from "@/components/booking-modal";
 
 const STATUS_MAP: Record<string, { label: string; variant: "available" | "partial" | "occupied" | "outline" }> = {
@@ -119,6 +137,30 @@ export default function PrenotazioniPage() {
   useEffect(() => {
     loadBookings();
   }, [slug]);
+
+  // Realtime subscription for new bookings
+  useEffect(() => {
+    if (!establishmentId) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel("bookings-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "bookings",
+          filter: `establishment_id=eq.${establishmentId}`,
+        },
+        () => {
+          loadBookings();
+          playNotificationSound();
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishmentId]);
 
   async function loadBookings() {
     const supabase = createClient();

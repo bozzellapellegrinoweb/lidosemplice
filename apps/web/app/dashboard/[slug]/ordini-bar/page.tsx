@@ -47,6 +47,24 @@ const NEXT_STATUS: Record<OrderStatus, OrderStatus | null> = {
   cancelled: null,
 };
 
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+    oscillator.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+    gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + 0.5);
+  } catch {}
+}
+
 export default function OrdiniBarPage() {
   const params = useParams();
   const slug = params.slug as string;
@@ -80,7 +98,7 @@ export default function OrdiniBarPage() {
           // Reload orders when a new one comes in
           loadOrders();
           if (soundOn) {
-            try { new Audio("/notification.mp3").play(); } catch {}
+            playNotificationSound();
           }
         }
       )
