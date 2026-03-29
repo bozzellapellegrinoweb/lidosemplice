@@ -73,6 +73,7 @@ export default function OrdiniBarPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<OrderStatus | "all">("all");
   const [soundOn, setSoundOn] = useState(true);
+  const [establishmentId, setEstablishmentId] = useState<string | null>(null);
   const establishmentIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -80,9 +81,9 @@ export default function OrdiniBarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
-  // Supabase Realtime subscription for new orders
+  // Supabase Realtime subscription — si attiva solo dopo che establishmentId è caricato
   useEffect(() => {
-    if (!establishmentIdRef.current) return;
+    if (!establishmentId) return;
     const supabase = createClient();
     const channel = supabase
       .channel("bar-orders-realtime")
@@ -92,10 +93,9 @@ export default function OrdiniBarPage() {
           event: "INSERT",
           schema: "public",
           table: "bar_orders",
-          filter: `establishment_id=eq.${establishmentIdRef.current}`,
+          filter: `establishment_id=eq.${establishmentId}`,
         },
         () => {
-          // Reload orders when a new one comes in
           loadOrders();
           if (soundOn) {
             playNotificationSound();
@@ -108,7 +108,7 @@ export default function OrdiniBarPage() {
           event: "UPDATE",
           schema: "public",
           table: "bar_orders",
-          filter: `establishment_id=eq.${establishmentIdRef.current}`,
+          filter: `establishment_id=eq.${establishmentId}`,
         },
         () => { loadOrders(); }
       )
@@ -116,7 +116,7 @@ export default function OrdiniBarPage() {
 
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, soundOn]);
+  }, [establishmentId, soundOn]);
 
   async function loadOrders() {
     const supabase = createClient();
@@ -128,6 +128,7 @@ export default function OrdiniBarPage() {
 
     if (!est) return;
     establishmentIdRef.current = est.id;
+    setEstablishmentId(est.id);
 
     const { data } = await supabase
       .from("bar_orders")
