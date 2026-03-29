@@ -14,6 +14,7 @@ import {
   X,
   Bell,
   Volume2,
+  VolumeX,
   Loader2,
   AlertCircle,
 } from "lucide-react";
@@ -41,19 +42,15 @@ interface NewOrderAlert {
 }
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; icon: typeof Clock; color: string; bgColor: string }> = {
-  pending: { label: "Nuovo", icon: Bell, color: "text-partial", bgColor: "bg-partial/10 border-partial/30" },
-  preparing: { label: "In preparazione", icon: ChefHat, color: "text-brand-azure", bgColor: "bg-brand-azure/10 border-brand-azure/30" },
-  ready: { label: "Pronto", icon: Check, color: "text-available", bgColor: "bg-available/10 border-available/30" },
-  delivered: { label: "Consegnato", icon: Truck, color: "text-muted-foreground", bgColor: "bg-muted border-border" },
-  cancelled: { label: "Annullato", icon: X, color: "text-occupied", bgColor: "bg-occupied/10 border-occupied/30" },
+  pending:   { label: "Nuovo",          icon: Bell,    color: "text-partial",          bgColor: "bg-partial/10 border-partial/30" },
+  preparing: { label: "In preparazione",icon: ChefHat, color: "text-brand-azure",      bgColor: "bg-brand-azure/10 border-brand-azure/30" },
+  ready:     { label: "Pronto",          icon: Check,   color: "text-available",        bgColor: "bg-available/10 border-available/30" },
+  delivered: { label: "Consegnato",      icon: Truck,   color: "text-muted-foreground", bgColor: "bg-muted border-border" },
+  cancelled: { label: "Annullato",       icon: X,       color: "text-occupied",         bgColor: "bg-occupied/10 border-occupied/30" },
 };
 
 const NEXT_STATUS: Record<OrderStatus, OrderStatus | null> = {
-  pending: "preparing",
-  preparing: "ready",
-  ready: "delivered",
-  delivered: null,
-  cancelled: null,
+  pending: "preparing", preparing: "ready", ready: "delivered", delivered: null, cancelled: null,
 };
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
@@ -67,11 +64,7 @@ function getAudioCtx(): AudioContext {
   return _audioCtx;
 }
 
-function unlockAudio() {
-  try { getAudioCtx(); } catch {}
-}
-
-async function beepOnce() {
+async function beepOnce(test = false) {
   try {
     const ctx = getAudioCtx();
     if (ctx.state === "suspended") await ctx.resume();
@@ -80,26 +73,30 @@ async function beepOnce() {
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
-    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
-    gain.gain.setValueAtTime(0.5, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.6);
+    if (test) {
+      // beep breve di conferma attivazione
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.25);
+    } else {
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.5, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.6);
+    }
   } catch {}
 }
 
 function startAlertSound(): () => void {
   let stopped = false;
   beepOnce();
-  const interval = setInterval(() => {
-    if (!stopped) beepOnce();
-  }, 2500);
-  return () => {
-    stopped = true;
-    clearInterval(interval);
-  };
+  const interval = setInterval(() => { if (!stopped) beepOnce(); }, 2500);
+  return () => { stopped = true; clearInterval(interval); };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,59 +105,84 @@ export default function OrdiniBarPage() {
   const params = useParams();
   const slug = params.slug as string;
 
-  const [orders, setOrders] = useState<BarOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<OrderStatus | "all">("all");
-  const [soundOn, setSoundOn] = useState(true);
+  const [orders, setOrders]             = useState<BarOrder[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [filter, setFilter]             = useState<OrderStatus | "all">("all");
+  const [soundOn, setSoundOn]           = useState(true);
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
-  const establishmentIdRef = useRef<string | null>(null);
-  const [alert, setAlert] = useState<NewOrderAlert | null>(null);
-  const stopSoundRef = useRef<(() => void) | null>(null);
+  const [alert, setAlert]               = useState<NewOrderAlert | null>(null);
 
+  const soundOnRef              = useRef(soundOn);
+  const stopSoundRef            = useRef<(() => void) | null>(null);
+  const lastOrderTimestampRef   = useRef<string | null>(null);
+  const establishmentIdRef      = useRef<string | null>(null);
+
+  useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
+
+  // Caricamento iniziale
   useEffect(() => {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
-  // Supabase Realtime subscription — si attiva solo dopo che establishmentId è caricato
+  // Polling ogni 5s — fallback affidabile indipendente da Realtime
+  useEffect(() => {
+    if (!establishmentId) return;
+    const interval = setInterval(() => pollNewOrders(), 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishmentId]);
+
+  // Realtime subscription (bonus: aggiornamento istantaneo se abilitato in Supabase)
   useEffect(() => {
     if (!establishmentId) return;
     const supabase = createClient();
     const channel = supabase
       .channel("bar-orders-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "bar_orders",
-          filter: `establishment_id=eq.${establishmentId}`,
-        },
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "bar_orders", filter: `establishment_id=eq.${establishmentId}` },
         (payload) => {
           loadOrders();
-          const row = payload.new as { id: string; umbrella_label: string; guest_name: string; total_cents: number; notes: string | null };
-          setAlert({ id: row.id, umbrella_label: row.umbrella_label || "?", guest_name: row.guest_name || "Cliente", total_cents: row.total_cents, notes: row.notes });
-          if (soundOn) {
-            if (stopSoundRef.current) stopSoundRef.current();
-            stopSoundRef.current = startAlertSound();
-          }
+          const row = payload.new as { id: string; umbrella_label: string; guest_name: string; total_cents: number; notes: string | null; created_at: string };
+          lastOrderTimestampRef.current = row.created_at; // evita doppio trigger col polling
+          triggerAlert({ id: row.id, umbrella_label: row.umbrella_label || "?", guest_name: row.guest_name || "Cliente", total_cents: row.total_cents, notes: row.notes });
         }
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "bar_orders",
-          filter: `establishment_id=eq.${establishmentId}`,
-        },
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "bar_orders", filter: `establishment_id=eq.${establishmentId}` },
         () => { loadOrders(); }
       )
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [establishmentId, soundOn]);
+  }, [establishmentId]);
+
+  async function pollNewOrders() {
+    const id = establishmentIdRef.current;
+    if (!id) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("bar_orders")
+      .select("id, umbrella_label, guest_name, total_cents, notes, created_at")
+      .eq("establishment_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (data && data.length > 0) {
+      const newest = data[0];
+      if (lastOrderTimestampRef.current && newest.created_at > lastOrderTimestampRef.current) {
+        loadOrders();
+        triggerAlert({ id: newest.id, umbrella_label: newest.umbrella_label || "?", guest_name: newest.guest_name || "Cliente", total_cents: newest.total_cents, notes: newest.notes });
+      }
+      lastOrderTimestampRef.current = newest.created_at;
+    }
+  }
+
+  function triggerAlert(order: NewOrderAlert) {
+    setAlert(order);
+    if (soundOnRef.current) {
+      if (stopSoundRef.current) stopSoundRef.current();
+      stopSoundRef.current = startAlertSound();
+    }
+  }
 
   function dismissAlert() {
     if (stopSoundRef.current) { stopSoundRef.current(); stopSoundRef.current = null; }
@@ -169,22 +191,14 @@ export default function OrdiniBarPage() {
 
   async function loadOrders() {
     const supabase = createClient();
-    const { data: est } = await supabase
-      .from("establishments")
-      .select("id")
-      .eq("slug", slug)
-      .single();
-
+    const { data: est } = await supabase.from("establishments").select("id").eq("slug", slug).single();
     if (!est) return;
     establishmentIdRef.current = est.id;
     setEstablishmentId(est.id);
 
     const { data } = await supabase
       .from("bar_orders")
-      .select(`
-        id, umbrella_label, guest_name, status, total_cents, notes, created_at,
-        bar_order_items(quantity, price_cents, menu_items(name))
-      `)
+      .select("id, umbrella_label, guest_name, status, total_cents, notes, created_at, bar_order_items(quantity, price_cents, menu_items(name))")
       .eq("establishment_id", est.id)
       .order("created_at", { ascending: false });
 
@@ -204,6 +218,10 @@ export default function OrdiniBarPage() {
         })),
       }));
       setOrders(mapped);
+      // Inizializza il timestamp dell'ultimo ordine noto (non triggerare alert per ordini già esistenti)
+      if (mapped.length > 0 && lastOrderTimestampRef.current === null) {
+        lastOrderTimestampRef.current = mapped[0].created_at;
+      }
     }
     setLoading(false);
   }
@@ -213,7 +231,6 @@ export default function OrdiniBarPage() {
     if (!order) return;
     const next = NEXT_STATUS[order.status];
     if (!next) return;
-
     const supabase = createClient();
     await supabase.from("bar_orders").update({ status: next }).eq("id", orderId);
     setOrders(orders.map((o) => (o.id === orderId ? { ...o, status: next } : o)));
@@ -224,14 +241,19 @@ export default function OrdiniBarPage() {
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return "Ora";
     if (mins < 60) return `${mins} min fa`;
-    const hours = Math.floor(mins / 60);
-    return `${hours}h fa`;
+    return `${Math.floor(mins / 60)}h fa`;
+  }
+
+  function handleSoundToggle() {
+    const next = !soundOn;
+    setSoundOn(next);
+    if (next) beepOnce(true); // beep di conferma → fa apparire icona audio su Chrome
   }
 
   const filtered = filter === "all" ? orders : orders.filter((o) => o.status === filter);
-  const pendingCount = orders.filter((o) => o.status === "pending").length;
+  const pendingCount   = orders.filter((o) => o.status === "pending").length;
   const preparingCount = orders.filter((o) => o.status === "preparing").length;
-  const readyCount = orders.filter((o) => o.status === "ready").length;
+  const readyCount     = orders.filter((o) => o.status === "ready").length;
 
   if (loading) {
     return (
@@ -245,10 +267,10 @@ export default function OrdiniBarPage() {
     <>
       {/* ── Popup nuovo ordine ─────────────────────────────────────────────── */}
       {alert && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-sm animate-bounce-once rounded-2xl bg-white p-8 text-center shadow-2xl dark:bg-zinc-900">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-2xl dark:bg-zinc-900">
             <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-partial/15">
-              <AlertCircle className="h-10 w-10 text-partial animate-pulse" />
+              <AlertCircle className="h-10 w-10 animate-pulse text-partial" />
             </div>
             <h2 className="mb-1 text-2xl font-black tracking-tight">NUOVO ORDINE!</h2>
             <div className="mb-6 space-y-2">
@@ -264,12 +286,7 @@ export default function OrdiniBarPage() {
                 {(alert.total_cents / 100).toFixed(2)}&euro;
               </p>
             </div>
-            <Button
-              variant="brand"
-              size="xl"
-              className="w-full text-lg font-bold"
-              onClick={dismissAlert}
-            >
+            <Button variant="brand" size="xl" className="w-full text-lg font-bold" onClick={dismissAlert}>
               Ho visto — Preparo!
             </Button>
           </div>
@@ -281,16 +298,11 @@ export default function OrdiniBarPage() {
           <div>
             <h1 className="text-2xl font-bold">Ordini bar</h1>
             <p className="text-muted-foreground">
-              {orders.length === 0
-                ? "Nessun ordine ancora. Appariranno qui in tempo reale."
-                : "Gestisci gli ordini in tempo reale."}
+              {orders.length === 0 ? "Nessun ordine ancora. Appariranno qui in tempo reale." : "Gestisci gli ordini in tempo reale."}
             </p>
           </div>
-          <Button
-            variant={soundOn ? "default" : "outline"}
-            onClick={() => { unlockAudio(); setSoundOn(!soundOn); }}
-          >
-            <Volume2 className="h-4 w-4" />
+          <Button variant={soundOn ? "default" : "outline"} onClick={handleSoundToggle}>
+            {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             Suono {soundOn ? "attivo" : "disattivato"}
           </Button>
         </div>
@@ -318,14 +330,9 @@ export default function OrdiniBarPage() {
         </div>
 
         {/* Filtri */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {(["all", "pending", "preparing", "ready", "delivered"] as const).map((s) => (
-            <Button
-              key={s}
-              variant={filter === s ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilter(s)}
-            >
+            <Button key={s} variant={filter === s ? "default" : "outline"} size="sm" onClick={() => setFilter(s)}>
               {s === "all" ? "Tutti" : STATUS_CONFIG[s].label}
             </Button>
           ))}
@@ -337,7 +344,6 @@ export default function OrdiniBarPage() {
             const config = STATUS_CONFIG[order.status];
             const StatusIcon = config.icon;
             const nextStatus = NEXT_STATUS[order.status];
-
             return (
               <Card key={order.id} className={`border ${config.bgColor}`}>
                 <CardContent className="p-4">
@@ -352,42 +358,29 @@ export default function OrdiniBarPage() {
                             <Umbrella className="h-3 w-3" />
                             {order.umbrella_label}
                           </Badge>
-                          <span className="text-sm text-muted-foreground">
-                            {order.guest_name}
-                          </span>
+                          <span className="text-sm text-muted-foreground">{order.guest_name}</span>
                         </div>
                         <div className="mt-1 space-y-0.5">
                           {order.items.map((item, i) => (
                             <p key={i} className="text-sm">
                               {item.qty}x {item.name}{" "}
-                              <span className="text-muted-foreground">
-                                ({((item.price_cents * item.qty) / 100).toFixed(2)}&euro;)
-                              </span>
+                              <span className="text-muted-foreground">({((item.price_cents * item.qty) / 100).toFixed(2)}&euro;)</span>
                             </p>
                           ))}
                         </div>
                         {order.notes && (
-                          <p className="mt-1 text-sm italic text-muted-foreground">
-                            Nota: {order.notes}
-                          </p>
+                          <p className="mt-1 text-sm italic text-muted-foreground">Nota: {order.notes}</p>
                         )}
                       </div>
                     </div>
-
                     <div className="flex flex-col items-end gap-2">
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Clock className="h-3 w-3" />
                         {timeAgo(order.created_at)}
                       </div>
-                      <span className="text-xl font-bold">
-                        {(order.total_cents / 100).toFixed(2)}&euro;
-                      </span>
+                      <span className="text-xl font-bold">{(order.total_cents / 100).toFixed(2)}&euro;</span>
                       {nextStatus && (
-                        <Button
-                          variant="brand"
-                          size="sm"
-                          onClick={() => advanceStatus(order.id)}
-                        >
+                        <Button variant="brand" size="sm" onClick={() => advanceStatus(order.id)}>
                           {nextStatus === "preparing" && "Prepara"}
                           {nextStatus === "ready" && "Pronto!"}
                           {nextStatus === "delivered" && "Consegnato"}
@@ -404,9 +397,7 @@ export default function OrdiniBarPage() {
             <Card>
               <CardContent className="flex min-h-[200px] items-center justify-center p-6">
                 <p className="text-muted-foreground">
-                  {orders.length === 0
-                    ? "Nessun ordine bar ancora. Gli ordini dai clienti appariranno qui."
-                    : "Nessun ordine trovato con questo filtro."}
+                  {orders.length === 0 ? "Nessun ordine bar ancora. Gli ordini dai clienti appariranno qui." : "Nessun ordine trovato con questo filtro."}
                 </p>
               </CardContent>
             </Card>

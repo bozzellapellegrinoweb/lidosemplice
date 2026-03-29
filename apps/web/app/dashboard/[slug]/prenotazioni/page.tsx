@@ -165,37 +165,66 @@ export default function PrenotazioniPage() {
   const [showModal, setShowModal] = useState(false);
   const [bookingAlert, setBookingAlert] = useState<NewBookingAlert | null>(null);
   const stopSoundRef = useRef<(() => void) | null>(null);
+  const lastBookingTimestampRef = useRef<string | null>(null);
+  const establishmentIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadBookings();
   }, [slug]);
 
-  // Realtime subscription for new bookings
+  // Polling ogni 5s — fallback affidabile indipendente da Realtime
+  useEffect(() => {
+    if (!establishmentId) return;
+    const interval = setInterval(() => pollNewBookings(), 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishmentId]);
+
+  // Realtime subscription (bonus: istantaneo se abilitato in Supabase)
   useEffect(() => {
     if (!establishmentId) return;
     const supabase = createClient();
     const channel = supabase
       .channel("bookings-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "bookings",
-          filter: `establishment_id=eq.${establishmentId}`,
-        },
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "bookings", filter: `establishment_id=eq.${establishmentId}` },
         (payload) => {
           loadBookings();
-          const row = payload.new as { guest_name: string; start_date: string; end_date: string; total_cents: number; booking_code: string };
-          setBookingAlert({ guest_name: row.guest_name || "Cliente", start_date: row.start_date, end_date: row.end_date, total_cents: row.total_cents, booking_code: row.booking_code });
-          if (stopSoundRef.current) stopSoundRef.current();
-          stopSoundRef.current = startAlertSound();
+          const row = payload.new as { guest_name: string; start_date: string; end_date: string; total_cents: number; booking_code: string; created_at: string };
+          lastBookingTimestampRef.current = row.created_at;
+          triggerBookingAlert({ guest_name: row.guest_name || "Cliente", start_date: row.start_date, end_date: row.end_date, total_cents: row.total_cents, booking_code: row.booking_code });
         }
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [establishmentId]);
+
+  async function pollNewBookings() {
+    const id = establishmentIdRef.current;
+    if (!id) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("bookings")
+      .select("guest_name, start_date, end_date, total_cents, booking_code, created_at")
+      .eq("establishment_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (data && data.length > 0) {
+      const newest = data[0];
+      if (lastBookingTimestampRef.current && newest.created_at > lastBookingTimestampRef.current) {
+        loadBookings();
+        triggerBookingAlert({ guest_name: newest.guest_name || "Cliente", start_date: newest.start_date, end_date: newest.end_date, total_cents: newest.total_cents, booking_code: newest.booking_code });
+      }
+      lastBookingTimestampRef.current = newest.created_at;
+    }
+  }
+
+  function triggerBookingAlert(b: NewBookingAlert) {
+    setBookingAlert(b);
+    if (stopSoundRef.current) stopSoundRef.current();
+    stopSoundRef.current = startAlertSound();
+  }
 
   async function loadBookings() {
     const supabase = createClient();
@@ -206,6 +235,7 @@ export default function PrenotazioniPage() {
       .single();
 
     if (!est) return;
+    establishmentIdRef.current = est.id;
     setEstablishmentId(est.id);
 
     const { data } = await supabase
@@ -214,7 +244,13 @@ export default function PrenotazioniPage() {
       .eq("establishment_id", est.id)
       .order("created_at", { ascending: false });
 
-    if (data) setBookings(data);
+    if (data) {
+      setBookings(data);
+      // Inizializza timestamp: non triggerare alert per prenotazioni già esistenti
+      if (data.length > 0 && lastBookingTimestampRef.current === null) {
+        lastBookingTimestampRef.current = data[0].created_at;
+      }
+    }
     setLoading(false);
   }
 
