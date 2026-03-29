@@ -40,10 +40,11 @@ export async function middleware(request: NextRequest) {
   try {
     const client = createSupabaseMiddlewareClient(request);
     getResponse = client.getResponse;
-    const { data } = await client.supabase.auth.getUser();
-    user = data.user;
+    // Usa getSession invece di getUser: legge il cookie localmente senza network call
+    const { data } = await client.supabase.auth.getSession();
+    user = data.session?.user ?? null;
   } catch {
-    // Se Supabase non risponde, lascia passare
+    // Se qualcosa va storto, lascia passare
     return NextResponse.next();
   }
 
