@@ -140,6 +140,7 @@ export default function MappaPage() {
   const [elements, setElements] = useState<MapElement[]>([]);
   const [statuses, setStatuses] = useState<Map<string, BookingStatus>>(new Map());
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  const [pricingRules, setPricingRules] = useState<{ row_number: number; price_cents: number }[]>([]);
 
   // Edit mode state
   const [newRowLabel, setNewRowLabel] = useState("");
@@ -216,9 +217,26 @@ export default function MappaPage() {
       }
     }
 
+    // Carica pricing rules (full_day) per mostrare prezzi sugli elementi
+    const { data: rules } = await supabase
+      .from("pricing_rules")
+      .select("row_number, price_cents, duration_type")
+      .eq("establishment_id", est.id)
+      .eq("duration_type", "full_day");
+    setPricingRules(rules || []);
+
     await loadStatuses(est.id, selectedDate);
 
     setLoading(false);
+  }
+
+  function getElementPrice(elementId: string): number | null {
+    const el = elements.find((e) => e.id === elementId);
+    if (!el) return null;
+    const row = rows.find((r) => r.id === el.map_row_id);
+    if (!row) return null;
+    const rule = pricingRules.find((r) => r.row_number === row.row_number);
+    return rule?.price_cents ?? null;
   }
 
   async function loadStatuses(estId: string, date: string) {
@@ -881,16 +899,22 @@ export default function MappaPage() {
                             const status = getElementStatus(el.id);
                             const ElIcon = ELEMENT_ICONS[el.element_type] || Umbrella;
                             const isBigElement = el.element_type === "cabana" || el.element_type === "gazebo";
+                            const price = mode === "view" ? getElementPrice(el.id) : null;
                             return (
                               <button
                                 key={el.id}
                                 onClick={() => setSelectedElement(el.id)}
-                                className={`flex ${isBigElement ? "h-14 w-20" : "h-14 w-14"} flex-col items-center justify-center rounded-lg border-2 text-xs font-medium transition-all ${
+                                className={`flex ${isBigElement ? "h-16 w-20" : "h-14 w-14"} flex-col items-center justify-center rounded-lg border-2 text-xs font-medium transition-all ${
                                   STATUS_COLORS[status]
                                 } ${selectedElement === el.id ? "ring-2 ring-foreground/20 scale-110" : ""}`}
                               >
                                 <ElIcon className="h-4 w-4" />
                                 <span className="mt-0.5">{el.label}</span>
+                                {price !== null && (
+                                  <span className="text-[10px] opacity-70">
+                                    €{(price / 100).toFixed(0)}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
@@ -1056,6 +1080,7 @@ export default function MappaPage() {
       <BookingModal
         establishmentId={establishmentId}
         initialElementId={bookingModalElementId}
+        initialDate={selectedDate}
         onClose={() => {
           setShowBookingModal(false);
           setBookingModalElementId(null);

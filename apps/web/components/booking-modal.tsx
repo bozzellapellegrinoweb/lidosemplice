@@ -65,6 +65,8 @@ interface BookingModalProps {
   establishmentId: string;
   /** When opened from mappa page with pre-selected element */
   initialElementId?: string | null;
+  /** Date pre-selected on the map (passes through to step 1) */
+  initialDate?: string;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -74,10 +76,12 @@ interface BookingModalProps {
 export function BookingModal({
   establishmentId,
   initialElementId,
+  initialDate,
   onClose,
   onSuccess,
 }: BookingModalProps) {
   const today = new Date().toISOString().slice(0, 10);
+  const defaultDate = initialDate || today;
 
   const [step, setStep] = useState<1 | 2>(initialElementId ? 2 : 1);
   const [loading, setLoading] = useState(true);
@@ -87,9 +91,9 @@ export function BookingModal({
   const [elements, setElements] = useState<MapElement[]>([]);
   const [occupiedIds, setOccupiedIds] = useState<Set<string>>(new Set());
 
-  // Date selection
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
+  // Date selection — inizializzate con la data della mappa se passata
+  const [startDate, setStartDate] = useState(defaultDate);
+  const [endDate, setEndDate] = useState(defaultDate);
 
   // Selected element
   const [selectedId, setSelectedId] = useState<string | null>(
