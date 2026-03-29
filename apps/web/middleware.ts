@@ -1,65 +1,78 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 
-function createSupabaseMiddlewareClient(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options as Record<string, unknown>)
-          );
-        },
-      },
-    }
-  );
-
-  return { supabase, getResponse: () => supabaseResponse };
+/** Decodifica il payload JWT senza verifica firma (sicuro per middleware Edge) */
+function decodeJwtPayload(token: string): { email?: string; exp?: number } | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(payload);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
 }
 
-export async function middleware(request: NextRequest) {
-  // Se mancano le env vars di Supabase, lascia passare senza auth
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    return NextResponse.next();
+/** Legge la sessione Supabase dai cookie senza SDK */
+function getSessionFromCookies(request: NextRequest): { email?: string } | null {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  // Cookie name: sb-<project-ref>-auth-token
+  const match = supabaseUrl.match(/https?:\/\/([^.]+)\./);
+  const projectRef = match?.[1] ?? "";
+  const cookieName = `sb-${projectRef}-auth-token`;
+
+  // Supabase può dividere il token in chunk: sb-...-auth-token.0, .1, ecc.
+  let rawToken = request.cookies.get(cookieName)?.value;
+
+  if (!rawToken) {
+    // Prova con chunk 0
+    rawToken = request.cookies.get(`${cookieName}.0`)?.value;
+    if (rawToken) {
+      // Ricomponi i chunk
+      let i = 1;
+      let chunk = request.cookies.get(`${cookieName}.${i}`)?.value;
+      while (chunk) {
+        rawToken += chunk;
+        i++;
+        chunk = request.cookies.get(`${cookieName}.${i}`)?.value;
+      }
+    }
   }
 
-  let user = null;
-  let getResponse = () => NextResponse.next();
+  if (!rawToken) return null;
 
   try {
-    const client = createSupabaseMiddlewareClient(request);
-    getResponse = client.getResponse;
-    // Usa getSession invece di getUser: legge il cookie localmente senza network call
-    const { data } = await client.supabase.auth.getSession();
-    user = data.session?.user ?? null;
+    // Il valore è JSON: {"access_token":"...","..."}
+    const session = JSON.parse(decodeURIComponent(rawToken));
+    const accessToken = session?.access_token;
+    if (!accessToken) return null;
+    const payload = decodeJwtPayload(accessToken);
+    if (!payload) return null;
+    // Verifica scadenza
+    if (payload.exp && payload.exp * 1000 < Date.now()) return null;
+    return { email: payload.email };
   } catch {
-    // Se qualcosa va storto, lascia passare
-    return NextResponse.next();
+    return null;
   }
+}
 
+export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+
+  const session = getSessionFromCookies(request);
+  const userEmail = session?.email ?? null;
+  const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || "info@lido-facile.it")
+    .split(",")
+    .map((e) => e.trim());
 
   // Proteggi le route /admin (solo super admin)
   if (pathname.startsWith("/admin")) {
-    if (!user) {
+    if (!userEmail) {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/login";
       return NextResponse.redirect(url);
     }
-
-    const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || "info@lido-facile.it").split(",");
-    if (!superAdminEmails.includes(user.email || "")) {
+    if (!superAdminEmails.includes(userEmail)) {
       const url = request.nextUrl.clone();
       url.pathname = "/";
       return NextResponse.redirect(url);
@@ -68,7 +81,7 @@ export async function middleware(request: NextRequest) {
 
   // Proteggi le route /dashboard
   if (pathname.startsWith("/dashboard")) {
-    if (!user) {
+    if (!userEmail) {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/login";
       return NextResponse.redirect(url);
@@ -77,44 +90,32 @@ export async function middleware(request: NextRequest) {
 
   // Se l'utente è già loggato e va su /auth/*, redirect a dashboard
   if (pathname.startsWith("/auth/")) {
-    if (user) {
+    if (userEmail) {
       const url = request.nextUrl.clone();
-      const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || "info@lido-facile.it").split(",");
-      if (superAdminEmails.includes(user.email || "")) {
-        url.pathname = "/admin";
-      } else {
-        url.pathname = "/dashboard";
-      }
+      url.pathname = superAdminEmails.includes(userEmail) ? "/admin" : "/dashboard";
       return NextResponse.redirect(url);
     }
   }
 
-  const response = getResponse();
-
-  // Estrai subdomain (ignora www e il dominio base)
+  // Gestione subdomain: riscrivi su /lido/[slug]
   const hostname = request.headers.get("host") || "";
   const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "lidofacile.it";
   const subdomain = hostname
     .replace(`.${baseDomain}`, "")
     .replace(`:${request.nextUrl.port}`, "");
 
-  // Se è il dominio principale o localhost, prosegui normalmente
   if (
     subdomain === hostname ||
     subdomain === "www" ||
     subdomain === "localhost" ||
     subdomain === "dashboard"
   ) {
-    return response;
+    return NextResponse.next();
   }
 
-  // Altrimenti è un subdomain di stabilimento: riscrivi su /lido/[slug]
   const url = request.nextUrl.clone();
   url.pathname = `/lido/${subdomain}${pathname}`;
-
-  return NextResponse.rewrite(url, {
-    headers: response.headers,
-  });
+  return NextResponse.rewrite(url);
 }
 
 export const config = {
