@@ -1,9 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function POST(request: Request) {
+  if (!process.env.RESEND_API_KEY) {
+    return Response.json({ error: "RESEND_API_KEY non configurata" }, { status: 503 });
+  }
+
+  const resend = new Resend(process.env.RESEND_API_KEY);
   const { bookingId } = await request.json();
 
   if (!bookingId) {
