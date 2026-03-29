@@ -29,12 +29,23 @@ function createSupabaseMiddlewareClient(request: NextRequest) {
 }
 
 export async function middleware(request: NextRequest) {
-  const { supabase, getResponse } = createSupabaseMiddlewareClient(request);
+  // Se mancano le env vars di Supabase, lascia passare senza auth
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return NextResponse.next();
+  }
 
-  // Refresh session
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  let getResponse = () => NextResponse.next();
+
+  try {
+    const client = createSupabaseMiddlewareClient(request);
+    getResponse = client.getResponse;
+    const { data } = await client.supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    // Se Supabase non risponde, lascia passare
+    return NextResponse.next();
+  }
 
   const pathname = request.nextUrl.pathname;
 
