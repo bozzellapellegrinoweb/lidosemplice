@@ -47,9 +47,24 @@ const NEXT_STATUS: Record<OrderStatus, OrderStatus | null> = {
   cancelled: null,
 };
 
-function playNotificationSound() {
+let _audioCtx: AudioContext | null = null;
+
+function getAudioCtx(): AudioContext {
+  if (!_audioCtx) {
+    _audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  }
+  return _audioCtx;
+}
+
+// Chiamare al primo click utente per sbloccare l'autoplay policy del browser
+function unlockAudio() {
+  try { getAudioCtx(); } catch {}
+}
+
+async function playNotificationSound() {
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const ctx = getAudioCtx();
+    if (ctx.state === "suspended") await ctx.resume();
     const oscillator = ctx.createOscillator();
     const gainNode = ctx.createGain();
     oscillator.connect(gainNode);
@@ -205,7 +220,7 @@ export default function OrdiniBarPage() {
         </div>
         <Button
           variant={soundOn ? "default" : "outline"}
-          onClick={() => setSoundOn(!soundOn)}
+          onClick={() => { unlockAudio(); setSoundOn(!soundOn); }}
         >
           <Volume2 className="h-4 w-4" />
           Suono {soundOn ? "attivo" : "disattivato"}
