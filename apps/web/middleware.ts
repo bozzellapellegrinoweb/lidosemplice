@@ -1,40 +1,51 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
 import { createServerClient } from "@supabase/ssr";
 
-export async function middleware(request: NextRequest) {
-  // Aggiorna la sessione Supabase
-  const response = await updateSession(request);
+function createSupabaseMiddlewareClient(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request });
 
-  const hostname = request.headers.get("host") || "";
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value)
+          );
+          supabaseResponse = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options as Record<string, unknown>)
+          );
+        },
+      },
+    }
+  );
+
+  return { supabase, getResponse: () => supabaseResponse };
+}
+
+export async function middleware(request: NextRequest) {
+  const { supabase, getResponse } = createSupabaseMiddlewareClient(request);
+
+  // Refresh session
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const pathname = request.nextUrl.pathname;
 
   // Proteggi le route /admin (solo super admin)
   if (pathname.startsWith("/admin")) {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/login";
       return NextResponse.redirect(url);
     }
 
-    // Verifica che sia super admin (email nella lista)
     const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || "info@lido-facile.it").split(",");
     if (!superAdminEmails.includes(user.email || "")) {
       const url = request.nextUrl.clone();
@@ -45,23 +56,6 @@ export async function middleware(request: NextRequest) {
 
   // Proteggi le route /dashboard
   if (pathname.startsWith("/dashboard")) {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/login";
@@ -71,26 +65,8 @@ export async function middleware(request: NextRequest) {
 
   // Se l'utente è già loggato e va su /auth/*, redirect a dashboard
   if (pathname.startsWith("/auth/")) {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
     if (user) {
       const url = request.nextUrl.clone();
-      // Super admin? Vai a /admin
       const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || "info@lido-facile.it").split(",");
       if (superAdminEmails.includes(user.email || "")) {
         url.pathname = "/admin";
@@ -101,7 +77,10 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  const response = getResponse();
+
   // Estrai subdomain (ignora www e il dominio base)
+  const hostname = request.headers.get("host") || "";
   const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "lidofacile.it";
   const subdomain = hostname
     .replace(`.${baseDomain}`, "")
