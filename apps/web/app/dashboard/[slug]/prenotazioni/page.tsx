@@ -23,6 +23,8 @@ import {
   BedSingle,
   User,
   AlertCircle,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { BookingModal } from "@/components/booking-modal";
@@ -36,6 +38,11 @@ function getAudioCtx(): AudioContext {
     _audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   }
   return _audioCtx;
+}
+
+// Sblocca AudioContext al primo gesto utente (richiesto dalla autoplay policy del browser)
+function unlockAudio() {
+  try { getAudioCtx(); } catch {}
 }
 
 async function beepOnce() {
@@ -163,6 +170,7 @@ export default function PrenotazioniPage() {
 
   // Modale nuova prenotazione
   const [showModal, setShowModal] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const [bookingAlert, setBookingAlert] = useState<NewBookingAlert | null>(null);
   const stopSoundRef = useRef<(() => void) | null>(null);
   const lastBookingTimestampRef = useRef<string | null>(null);
@@ -222,8 +230,10 @@ export default function PrenotazioniPage() {
 
   function triggerBookingAlert(b: NewBookingAlert) {
     setBookingAlert(b);
-    if (stopSoundRef.current) stopSoundRef.current();
-    stopSoundRef.current = startAlertSound();
+    if (soundOn) {
+      if (stopSoundRef.current) stopSoundRef.current();
+      stopSoundRef.current = startAlertSound();
+    }
   }
 
   async function loadBookings() {
@@ -408,6 +418,14 @@ export default function PrenotazioniPage() {
           <p className="text-muted-foreground">{bookings.length} prenotazioni totali.</p>
         </div>
         <div className="flex gap-2">
+          {/* Bottone suono: click sblocca AudioContext (autoplay policy browser) */}
+          <Button
+            variant={soundOn ? "default" : "outline"}
+            onClick={() => { unlockAudio(); const next = !soundOn; setSoundOn(next); if (next) beepOnce(); }}
+          >
+            {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            Suono {soundOn ? "attivo" : "off"}
+          </Button>
           <Button variant="outline">
             <QrCode className="h-4 w-4" />
             Scansiona QR
