@@ -1,5 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { AIChat } from "@/components/chat/ai-chat";
 
 interface Props {
@@ -30,27 +31,33 @@ export default async function EstablishmentLayout({ children, params }: Props) {
     notFound();
   }
 
-  // Verifica che l'utente sia proprietario o membro
+  // Leggi ruolo e permessi dell'utente per questo stabilimento
+  const { data: membership } = await supabase
+    .from("establishment_members")
+    .select("role, permissions, is_active")
+    .eq("establishment_id", establishment.id)
+    .eq("user_id", user.id)
+    .single();
+
   const isOwner = establishment.owner_id === user.id;
 
-  if (!isOwner) {
-    const { data: membership } = await supabase
-      .from("establishment_members")
-      .select("id")
-      .eq("establishment_id", establishment.id)
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .single();
-
-    if (!membership) {
-      redirect("/dashboard");
-    }
+  // Se non è proprietario e non è membro attivo → fuori
+  if (!isOwner && (!membership || !membership.is_active)) {
+    redirect("/dashboard");
   }
+
+  const role = membership?.role || (isOwner ? "admin" : "employee");
+  const permissions = membership?.permissions as Record<string, boolean> | null;
 
   return (
     <>
-      {children}
-      <AIChat establishmentId={establishment.id} userRole="admin" />
+      <DashboardSidebar role={role} permissions={permissions ?? {}} />
+      <main className="min-h-screen transition-all duration-300 lg:ml-[260px]">
+        <div className="mx-auto max-w-7xl px-4 pb-6 pt-16 sm:px-6 lg:px-8 lg:pt-6">
+          {children}
+        </div>
+      </main>
+      <AIChat establishmentId={establishment.id} userRole={role} />
     </>
   );
 }
