@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,29 +22,59 @@ import {
   Tent,
   BedSingle,
   User,
+  AlertCircle,
 } from "lucide-react";
-// MapElement type kept for internal use
-
 import { createClient } from "@/lib/supabase/client";
+import { BookingModal } from "@/components/booking-modal";
 
-function playNotificationSound() {
+// ── Audio ─────────────────────────────────────────────────────────────────────
+
+let _audioCtx: AudioContext | null = null;
+
+function getAudioCtx(): AudioContext {
+  if (!_audioCtx) {
+    _audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  }
+  return _audioCtx;
+}
+
+async function beepOnce() {
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
-    oscillator.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
-    oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
-    gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    oscillator.start(ctx.currentTime);
-    oscillator.stop(ctx.currentTime + 0.5);
+    const ctx = getAudioCtx();
+    if (ctx.state === "suspended") await ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(660, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.7);
   } catch {}
 }
-import { BookingModal } from "@/components/booking-modal";
+
+function startAlertSound(): () => void {
+  let stopped = false;
+  beepOnce();
+  const interval = setInterval(() => {
+    if (!stopped) beepOnce();
+  }, 2500);
+  return () => { stopped = true; clearInterval(interval); };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface NewBookingAlert {
+  guest_name: string;
+  start_date: string;
+  end_date: string;
+  total_cents: number;
+  booking_code: string;
+}
 
 const STATUS_MAP: Record<string, { label: string; variant: "available" | "partial" | "occupied" | "outline" }> = {
   confirmed: { label: "Confermato", variant: "partial" },
@@ -133,6 +163,8 @@ export default function PrenotazioniPage() {
 
   // Modale nuova prenotazione
   const [showModal, setShowModal] = useState(false);
+  const [bookingAlert, setBookingAlert] = useState<NewBookingAlert | null>(null);
+  const stopSoundRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     loadBookings();
@@ -152,9 +184,12 @@ export default function PrenotazioniPage() {
           table: "bookings",
           filter: `establishment_id=eq.${establishmentId}`,
         },
-        () => {
+        (payload) => {
           loadBookings();
-          playNotificationSound();
+          const row = payload.new as { guest_name: string; start_date: string; end_date: string; total_cents: number; booking_code: string };
+          setBookingAlert({ guest_name: row.guest_name || "Cliente", start_date: row.start_date, end_date: row.end_date, total_cents: row.total_cents, booking_code: row.booking_code });
+          if (stopSoundRef.current) stopSoundRef.current();
+          stopSoundRef.current = startAlertSound();
         }
       )
       .subscribe();
@@ -284,6 +319,11 @@ export default function PrenotazioniPage() {
 
   const detail = selectedBooking ? bookings.find((b) => b.id === selectedBooking) : null;
 
+  function dismissBookingAlert() {
+    if (stopSoundRef.current) { stopSoundRef.current(); stopSoundRef.current = null; }
+    setBookingAlert(null);
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -293,6 +333,38 @@ export default function PrenotazioniPage() {
   }
 
   return (
+    <>
+      {/* ── Popup nuova prenotazione ──────────────────────────────────────── */}
+      {bookingAlert && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-2xl dark:bg-zinc-900">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-brand-azure/15">
+              <AlertCircle className="h-10 w-10 text-brand-azure animate-pulse" />
+            </div>
+            <h2 className="mb-1 text-2xl font-black tracking-tight">NUOVA PRENOTAZIONE!</h2>
+            <div className="mb-6 space-y-2">
+              <p className="text-xl font-bold">{bookingAlert.guest_name}</p>
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                <Calendar className="h-4 w-4" />
+                <span>{bookingAlert.start_date === bookingAlert.end_date ? bookingAlert.start_date : `${bookingAlert.start_date} → ${bookingAlert.end_date}`}</span>
+              </div>
+              <p className="font-mono text-sm text-muted-foreground">{bookingAlert.booking_code}</p>
+              <p className="text-3xl font-black text-brand-azure">
+                {(bookingAlert.total_cents / 100).toFixed(2)}&euro;
+              </p>
+            </div>
+            <Button
+              variant="brand"
+              size="xl"
+              className="w-full text-lg font-bold"
+              onClick={dismissBookingAlert}
+            >
+              Ho visto!
+            </Button>
+          </div>
+        </div>
+      )}
+
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -532,5 +604,6 @@ export default function PrenotazioniPage() {
         />
       )}
     </div>
+    </>
   );
 }

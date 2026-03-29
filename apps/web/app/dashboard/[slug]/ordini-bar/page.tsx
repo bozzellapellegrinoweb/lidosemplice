@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   Bell,
   Volume2,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -29,6 +30,14 @@ interface BarOrder {
   notes: string | null;
   created_at: string;
   items: { name: string; qty: number; price_cents: number }[];
+}
+
+interface NewOrderAlert {
+  id: string;
+  umbrella_label: string;
+  guest_name: string;
+  total_cents: number;
+  notes: string | null;
 }
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; icon: typeof Clock; color: string; bgColor: string }> = {
@@ -47,6 +56,8 @@ const NEXT_STATUS: Record<OrderStatus, OrderStatus | null> = {
   cancelled: null,
 };
 
+// ── Audio ─────────────────────────────────────────────────────────────────────
+
 let _audioCtx: AudioContext | null = null;
 
 function getAudioCtx(): AudioContext {
@@ -56,29 +67,42 @@ function getAudioCtx(): AudioContext {
   return _audioCtx;
 }
 
-// Chiamare al primo click utente per sbloccare l'autoplay policy del browser
 function unlockAudio() {
   try { getAudioCtx(); } catch {}
 }
 
-async function playNotificationSound() {
+async function beepOnce() {
   try {
     const ctx = getAudioCtx();
     if (ctx.state === "suspended") await ctx.resume();
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
-    oscillator.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
-    oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
-    gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    oscillator.start(ctx.currentTime);
-    oscillator.stop(ctx.currentTime + 0.5);
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.6);
   } catch {}
 }
+
+function startAlertSound(): () => void {
+  let stopped = false;
+  beepOnce();
+  const interval = setInterval(() => {
+    if (!stopped) beepOnce();
+  }, 2500);
+  return () => {
+    stopped = true;
+    clearInterval(interval);
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function OrdiniBarPage() {
   const params = useParams();
@@ -90,6 +114,8 @@ export default function OrdiniBarPage() {
   const [soundOn, setSoundOn] = useState(true);
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
   const establishmentIdRef = useRef<string | null>(null);
+  const [alert, setAlert] = useState<NewOrderAlert | null>(null);
+  const stopSoundRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     loadOrders();
@@ -110,10 +136,13 @@ export default function OrdiniBarPage() {
           table: "bar_orders",
           filter: `establishment_id=eq.${establishmentId}`,
         },
-        () => {
+        (payload) => {
           loadOrders();
+          const row = payload.new as { id: string; umbrella_label: string; guest_name: string; total_cents: number; notes: string | null };
+          setAlert({ id: row.id, umbrella_label: row.umbrella_label || "?", guest_name: row.guest_name || "Cliente", total_cents: row.total_cents, notes: row.notes });
           if (soundOn) {
-            playNotificationSound();
+            if (stopSoundRef.current) stopSoundRef.current();
+            stopSoundRef.current = startAlertSound();
           }
         }
       )
@@ -132,6 +161,11 @@ export default function OrdiniBarPage() {
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [establishmentId, soundOn]);
+
+  function dismissAlert() {
+    if (stopSoundRef.current) { stopSoundRef.current(); stopSoundRef.current = null; }
+    setAlert(null);
+  }
 
   async function loadOrders() {
     const supabase = createClient();
@@ -208,142 +242,177 @@ export default function OrdiniBarPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Ordini bar</h1>
-          <p className="text-muted-foreground">
-            {orders.length === 0
-              ? "Nessun ordine ancora. Appariranno qui in tempo reale."
-              : "Gestisci gli ordini in tempo reale."}
-          </p>
+    <>
+      {/* ── Popup nuovo ordine ─────────────────────────────────────────────── */}
+      {alert && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm animate-bounce-once rounded-2xl bg-white p-8 text-center shadow-2xl dark:bg-zinc-900">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-partial/15">
+              <AlertCircle className="h-10 w-10 text-partial animate-pulse" />
+            </div>
+            <h2 className="mb-1 text-2xl font-black tracking-tight">NUOVO ORDINE!</h2>
+            <div className="mb-6 space-y-2">
+              <div className="flex items-center justify-center gap-2 text-xl font-bold">
+                <Umbrella className="h-5 w-5 text-brand-azure" />
+                Ombrellone {alert.umbrella_label}
+              </div>
+              <p className="text-lg text-muted-foreground">{alert.guest_name}</p>
+              {alert.notes && (
+                <p className="rounded-lg bg-muted px-3 py-1.5 text-sm italic">Nota: {alert.notes}</p>
+              )}
+              <p className="text-3xl font-black text-partial">
+                {(alert.total_cents / 100).toFixed(2)}&euro;
+              </p>
+            </div>
+            <Button
+              variant="brand"
+              size="xl"
+              className="w-full text-lg font-bold"
+              onClick={dismissAlert}
+            >
+              Ho visto — Preparo!
+            </Button>
+          </div>
         </div>
-        <Button
-          variant={soundOn ? "default" : "outline"}
-          onClick={() => { unlockAudio(); setSoundOn(!soundOn); }}
-        >
-          <Volume2 className="h-4 w-4" />
-          Suono {soundOn ? "attivo" : "disattivato"}
-        </Button>
-      </div>
+      )}
 
-      {/* Contatori status */}
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="border-partial/30 bg-partial/5">
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-partial">{pendingCount}</p>
-            <p className="text-sm text-muted-foreground">Nuovi ordini</p>
-          </CardContent>
-        </Card>
-        <Card className="border-brand-azure/30 bg-brand-azure/5">
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-brand-azure">{preparingCount}</p>
-            <p className="text-sm text-muted-foreground">In preparazione</p>
-          </CardContent>
-        </Card>
-        <Card className="border-available/30 bg-available/5">
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-available">{readyCount}</p>
-            <p className="text-sm text-muted-foreground">Pronti</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filtri */}
-      <div className="flex gap-2">
-        {(["all", "pending", "preparing", "ready", "delivered"] as const).map((s) => (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Ordini bar</h1>
+            <p className="text-muted-foreground">
+              {orders.length === 0
+                ? "Nessun ordine ancora. Appariranno qui in tempo reale."
+                : "Gestisci gli ordini in tempo reale."}
+            </p>
+          </div>
           <Button
-            key={s}
-            variant={filter === s ? "default" : "outline"}
-            size="sm"
-            onClick={() => setFilter(s)}
+            variant={soundOn ? "default" : "outline"}
+            onClick={() => { unlockAudio(); setSoundOn(!soundOn); }}
           >
-            {s === "all" ? "Tutti" : STATUS_CONFIG[s].label}
+            <Volume2 className="h-4 w-4" />
+            Suono {soundOn ? "attivo" : "disattivato"}
           </Button>
-        ))}
-      </div>
+        </div>
 
-      {/* Lista ordini */}
-      <div className="space-y-3">
-        {filtered.map((order) => {
-          const config = STATUS_CONFIG[order.status];
-          const StatusIcon = config.icon;
-          const nextStatus = NEXT_STATUS[order.status];
+        {/* Contatori status */}
+        <div className="grid grid-cols-3 gap-3">
+          <Card className="border-partial/30 bg-partial/5">
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold text-partial">{pendingCount}</p>
+              <p className="text-sm text-muted-foreground">Nuovi ordini</p>
+            </CardContent>
+          </Card>
+          <Card className="border-brand-azure/30 bg-brand-azure/5">
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold text-brand-azure">{preparingCount}</p>
+              <p className="text-sm text-muted-foreground">In preparazione</p>
+            </CardContent>
+          </Card>
+          <Card className="border-available/30 bg-available/5">
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold text-available">{readyCount}</p>
+              <p className="text-sm text-muted-foreground">Pronti</p>
+            </CardContent>
+          </Card>
+        </div>
 
-          return (
-            <Card key={order.id} className={`border ${config.bgColor}`}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${config.bgColor}`}>
-                      <StatusIcon className={`h-6 w-6 ${config.color}`} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="gap-1">
-                          <Umbrella className="h-3 w-3" />
-                          {order.umbrella_label}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          {order.guest_name}
-                        </span>
+        {/* Filtri */}
+        <div className="flex gap-2">
+          {(["all", "pending", "preparing", "ready", "delivered"] as const).map((s) => (
+            <Button
+              key={s}
+              variant={filter === s ? "default" : "outline"}
+              size="sm"
+              onClick={() => setFilter(s)}
+            >
+              {s === "all" ? "Tutti" : STATUS_CONFIG[s].label}
+            </Button>
+          ))}
+        </div>
+
+        {/* Lista ordini */}
+        <div className="space-y-3">
+          {filtered.map((order) => {
+            const config = STATUS_CONFIG[order.status];
+            const StatusIcon = config.icon;
+            const nextStatus = NEXT_STATUS[order.status];
+
+            return (
+              <Card key={order.id} className={`border ${config.bgColor}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${config.bgColor}`}>
+                        <StatusIcon className={`h-6 w-6 ${config.color}`} />
                       </div>
-                      <div className="mt-1 space-y-0.5">
-                        {order.items.map((item, i) => (
-                          <p key={i} className="text-sm">
-                            {item.qty}x {item.name}{" "}
-                            <span className="text-muted-foreground">
-                              ({((item.price_cents * item.qty) / 100).toFixed(2)}&euro;)
-                            </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="gap-1">
+                            <Umbrella className="h-3 w-3" />
+                            {order.umbrella_label}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {order.guest_name}
+                          </span>
+                        </div>
+                        <div className="mt-1 space-y-0.5">
+                          {order.items.map((item, i) => (
+                            <p key={i} className="text-sm">
+                              {item.qty}x {item.name}{" "}
+                              <span className="text-muted-foreground">
+                                ({((item.price_cents * item.qty) / 100).toFixed(2)}&euro;)
+                              </span>
+                            </p>
+                          ))}
+                        </div>
+                        {order.notes && (
+                          <p className="mt-1 text-sm italic text-muted-foreground">
+                            Nota: {order.notes}
                           </p>
-                        ))}
+                        )}
                       </div>
-                      {order.notes && (
-                        <p className="mt-1 text-sm italic text-muted-foreground">
-                          Nota: {order.notes}
-                        </p>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        {timeAgo(order.created_at)}
+                      </div>
+                      <span className="text-xl font-bold">
+                        {(order.total_cents / 100).toFixed(2)}&euro;
+                      </span>
+                      {nextStatus && (
+                        <Button
+                          variant="brand"
+                          size="sm"
+                          onClick={() => advanceStatus(order.id)}
+                        >
+                          {nextStatus === "preparing" && "Prepara"}
+                          {nextStatus === "ready" && "Pronto!"}
+                          {nextStatus === "delivered" && "Consegnato"}
+                        </Button>
                       )}
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            );
+          })}
 
-                  <div className="flex flex-col items-end gap-2">
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {timeAgo(order.created_at)}
-                    </div>
-                    <span className="text-xl font-bold">
-                      {(order.total_cents / 100).toFixed(2)}&euro;
-                    </span>
-                    {nextStatus && (
-                      <Button
-                        variant="brand"
-                        size="sm"
-                        onClick={() => advanceStatus(order.id)}
-                      >
-                        {nextStatus === "preparing" && "Prepara"}
-                        {nextStatus === "ready" && "Pronto!"}
-                        {nextStatus === "delivered" && "Consegnato"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
+          {filtered.length === 0 && (
+            <Card>
+              <CardContent className="flex min-h-[200px] items-center justify-center p-6">
+                <p className="text-muted-foreground">
+                  {orders.length === 0
+                    ? "Nessun ordine bar ancora. Gli ordini dai clienti appariranno qui."
+                    : "Nessun ordine trovato con questo filtro."}
+                </p>
               </CardContent>
             </Card>
-          );
-        })}
-
-        {filtered.length === 0 && (
-          <Card>
-            <CardContent className="flex min-h-[200px] items-center justify-center p-6">
-              <p className="text-muted-foreground">
-                {orders.length === 0
-                  ? "Nessun ordine bar ancora. Gli ordini dai clienti appariranno qui."
-                  : "Nessun ordine trovato con questo filtro."}
-              </p>
-            </CardContent>
-          </Card>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
