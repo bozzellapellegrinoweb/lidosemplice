@@ -51,7 +51,7 @@ export default function LoginPage() {
       // Super admin? Vai a /admin
       const superAdminEmails = ["info@lido-facile.it"];
       if (superAdminEmails.includes(user.email || "")) {
-        router.push("/admin");
+        window.location.href = "/admin";
         return;
       }
 
@@ -64,7 +64,7 @@ export default function LoginPage() {
         .single();
 
       if (owned?.slug) {
-        router.push(`/dashboard/${owned.slug}`);
+        window.location.href = `/dashboard/${owned.slug}`;
         return;
       }
 
@@ -79,12 +79,12 @@ export default function LoginPage() {
 
       if (membership?.establishments) {
         const est = membership.establishments as unknown as { slug: string };
-        router.push(`/dashboard/${est.slug}`);
+        window.location.href = `/dashboard/${est.slug}`;
         return;
       }
 
       // Nessuno stabilimento
-      router.push("/dashboard/nuovo");
+      window.location.href = "/dashboard/nuovo";
     } catch {
       setError("Si è verificato un errore. Riprova.");
     } finally {
