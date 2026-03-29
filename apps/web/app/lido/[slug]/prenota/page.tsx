@@ -334,7 +334,8 @@ export default function BookingPage() {
   const total = umbrellaTotal + servicesTotal;
 
   async function handleBooking() {
-    if (!establishmentId || !guestName || !guestEmail || !startDate || !endDate) return;
+    if (!establishmentId || !guestName || !startDate || !endDate) return;
+    if (paymentMethod !== "onsite" && !guestEmail) return;
     setSubmitting(true);
 
     const supabase = createClient();
