@@ -23,7 +23,10 @@ import {
   BedSingle,
   User,
 } from "lucide-react";
+// MapElement type kept for internal use
+
 import { createClient } from "@/lib/supabase/client";
+import { BookingModal } from "@/components/booking-modal";
 
 const STATUS_MAP: Record<string, { label: string; variant: "available" | "partial" | "occupied" | "outline" }> = {
   confirmed: { label: "Confermato", variant: "partial" },
@@ -112,19 +115,6 @@ export default function PrenotazioniPage() {
 
   // Modale nuova prenotazione
   const [showModal, setShowModal] = useState(false);
-  const [modalLoading, setModalLoading] = useState(false);
-  const [modalError, setModalError] = useState("");
-  const [elements, setElements] = useState<MapElement[]>([]);
-  const [form, setForm] = useState({
-    guest_name: "",
-    guest_phone: "",
-    guest_email: "",
-    start_date: new Date().toISOString().slice(0, 10),
-    end_date: new Date().toISOString().slice(0, 10),
-    element_id: "",
-    total: "",
-    notes: "",
-  });
 
   useEffect(() => {
     loadBookings();
@@ -151,109 +141,6 @@ export default function PrenotazioniPage() {
     setLoading(false);
   }
 
-  async function loadElements() {
-    if (!establishmentId) return;
-    const supabase = createClient();
-    const { data: maps } = await supabase
-      .from("beach_maps")
-      .select("id")
-      .eq("establishment_id", establishmentId)
-      .eq("is_active", true);
-
-    if (!maps?.length) return;
-
-    const { data: els } = await supabase
-      .from("map_elements")
-      .select("id, label, element_type, map_row_id")
-      .in("beach_map_id", maps.map((m) => m.id))
-      .eq("is_bookable", true)
-      .order("label");
-
-    if (!els) return;
-
-    const rowIds = [...new Set(els.map((e) => e.map_row_id).filter(Boolean))];
-    const { data: rows } = await supabase
-      .from("map_rows")
-      .select("id, label")
-      .in("id", rowIds);
-
-    const enriched = els.map((el) => ({
-      ...el,
-      row_label: rows?.find((r) => r.id === el.map_row_id)?.label || "",
-    }));
-
-    setElements(enriched);
-  }
-
-  function openModal() {
-    setForm({
-      guest_name: "",
-      guest_phone: "",
-      guest_email: "",
-      start_date: new Date().toISOString().slice(0, 10),
-      end_date: new Date().toISOString().slice(0, 10),
-      element_id: "",
-      total: "",
-      notes: "",
-    });
-    setModalError("");
-    loadElements();
-    setShowModal(true);
-  }
-
-  async function handleCreateBooking() {
-    if (!form.guest_name || !form.guest_phone || !form.start_date || !form.end_date || !form.element_id) {
-      setModalError("Compila nome, telefono, date e ombrellone.");
-      return;
-    }
-    setModalLoading(true);
-    setModalError("");
-
-    try {
-      const supabase = createClient();
-      const code = `MAN-${Date.now().toString(36).toUpperCase()}`;
-      const totalCents = Math.round(parseFloat(form.total || "0") * 100);
-
-      const { data: booking, error } = await supabase
-        .from("bookings")
-        .insert({
-          establishment_id: establishmentId,
-          booking_code: code,
-          guest_name: form.guest_name,
-          guest_phone: form.guest_phone,
-          guest_email: form.guest_email || null,
-          start_date: form.start_date,
-          end_date: form.end_date,
-          status: "confirmed",
-          total_cents: totalCents,
-          notes: form.notes || null,
-          payment_method: "onsite",
-        })
-        .select("id")
-        .single();
-
-      if (error || !booking) {
-        setModalError(error?.message || "Errore nella creazione.");
-        setModalLoading(false);
-        return;
-      }
-
-      // Crea booking item
-      await supabase.from("booking_items").insert({
-        booking_id: booking.id,
-        map_element_id: form.element_id,
-        sunbeds_count: 2,
-        price_cents: totalCents,
-      });
-
-      setShowModal(false);
-      await loadBookings();
-    } catch {
-      setModalError("Errore imprevisto. Riprova.");
-    } finally {
-      setModalLoading(false);
-    }
-  }
 
   useEffect(() => {
     if (selectedBooking) {
@@ -375,7 +262,7 @@ export default function PrenotazioniPage() {
             <QrCode className="h-4 w-4" />
             Scansiona QR
           </Button>
-          <Button variant="brand" onClick={openModal}>
+          <Button variant="brand" onClick={() => setShowModal(true)}>
             <Plus className="h-4 w-4" />
             Nuova prenotazione
           </Button>
@@ -592,119 +479,15 @@ export default function PrenotazioniPage() {
       </div>
 
       {/* Modale nuova prenotazione */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-background p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold">Nuova prenotazione manuale</h2>
-              <button onClick={() => setShowModal(false)} className="rounded-md p-1 hover:bg-muted">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {modalError && (
-              <div className="mb-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{modalError}</div>
-            )}
-
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-sm font-medium">Nome e cognome *</label>
-                <Input
-                  placeholder="Mario Rossi"
-                  value={form.guest_name}
-                  onChange={(e) => setForm({ ...form, guest_name: e.target.value })}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Telefono *</label>
-                  <Input
-                    placeholder="+39 333 1234567"
-                    value={form.guest_phone}
-                    onChange={(e) => setForm({ ...form, guest_phone: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Email</label>
-                  <Input
-                    type="email"
-                    placeholder="mario@email.it"
-                    value={form.guest_email}
-                    onChange={(e) => setForm({ ...form, guest_email: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Dal *</label>
-                  <Input
-                    type="date"
-                    value={form.start_date}
-                    onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Al *</label>
-                  <Input
-                    type="date"
-                    value={form.end_date}
-                    min={form.start_date}
-                    onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">Ombrellone / elemento *</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={form.element_id}
-                  onChange={(e) => setForm({ ...form, element_id: e.target.value })}
-                >
-                  <option value="">Seleziona...</option>
-                  {elements.map((el) => (
-                    <option key={el.id} value={el.id}>
-                      {ELEMENT_LABELS[el.element_type] || el.element_type} {el.label}
-                      {el.row_label ? ` — ${el.row_label}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">Importo totale (€)</label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={form.total}
-                  onChange={(e) => setForm({ ...form, total: e.target.value })}
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">Note</label>
-                <Input
-                  placeholder="Note interne..."
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setShowModal(false)}>
-                Annulla
-              </Button>
-              <Button variant="brand" className="flex-1" disabled={modalLoading} onClick={handleCreateBooking}>
-                {modalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Crea prenotazione"}
-              </Button>
-            </div>
-          </div>
-        </div>
+      {showModal && establishmentId && (
+        <BookingModal
+          establishmentId={establishmentId}
+          onClose={() => setShowModal(false)}
+          onSuccess={async () => {
+            setShowModal(false);
+            await loadBookings();
+          }}
+        />
       )}
     </div>
   );

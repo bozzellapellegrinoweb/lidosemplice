@@ -31,6 +31,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { BookingModal } from "@/components/booking-modal";
 
 interface BeachMap {
   id: string;
@@ -149,6 +150,8 @@ export default function MappaPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [bookingModalElementId, setBookingModalElementId] = useState<string | null>(null);
 
   useEffect(() => {
     loadMaps();
@@ -543,6 +546,7 @@ export default function MappaPage() {
   }
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -964,7 +968,14 @@ export default function MappaPage() {
 
                 <div className="space-y-2">
                   {getElementStatus(selected.id) === "available" ? (
-                    <Button variant="brand" className="w-full">
+                    <Button
+                      variant="brand"
+                      className="w-full"
+                      onClick={() => {
+                        setBookingModalElementId(selected.id);
+                        setShowBookingModal(true);
+                      }}
+                    >
                       <Plus className="h-4 w-4" />
                       Assegna rapido
                     </Button>
@@ -1040,5 +1051,22 @@ export default function MappaPage() {
         </div>
       </div>
     </div>
+
+    {showBookingModal && establishmentId && (
+      <BookingModal
+        establishmentId={establishmentId}
+        initialElementId={bookingModalElementId}
+        onClose={() => {
+          setShowBookingModal(false);
+          setBookingModalElementId(null);
+        }}
+        onSuccess={async () => {
+          setShowBookingModal(false);
+          setBookingModalElementId(null);
+          await loadStatuses(establishmentId, selectedDate);
+        }}
+      />
+    )}
+    </>
   );
 }
