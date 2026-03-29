@@ -63,6 +63,7 @@ export default function MenuBarPage() {
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemAvailable, setNewItemAvailable] = useState(true);
   const [addingItem, setAddingItem] = useState(false);
+  const [addItemError, setAddItemError] = useState("");
 
   useEffect(() => {
     loadData();
@@ -177,6 +178,7 @@ export default function MenuBarPage() {
   async function addItem() {
     if (!activeCategoryId || !newItemName.trim() || !newItemPrice) return;
     setAddingItem(true);
+    setAddItemError("");
 
     const supabase = createClient();
     const priceCents = Math.round(parseFloat(newItemPrice) * 100);
@@ -197,12 +199,15 @@ export default function MenuBarPage() {
       .select()
       .single();
 
-    if (!error && data) {
+    if (error) {
+      setAddItemError(error.message);
+    } else if (data) {
       setItems([...items, data]);
       setNewItemName("");
       setNewItemDescription("");
       setNewItemPrice("");
       setNewItemAvailable(true);
+      setAddItemError("");
       setShowAddItem(false);
     }
     setAddingItem(false);
@@ -391,6 +396,11 @@ export default function MenuBarPage() {
                   <Card className="border-brand-azure/30">
                     <CardContent className="space-y-3 p-4">
                       <p className="text-sm font-medium">Nuovo articolo</p>
+                      {addItemError && (
+                        <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                          {addItemError}
+                        </div>
+                      )}
                       <div className="grid gap-3 sm:grid-cols-3">
                         <div>
                           <label className="mb-1 block text-sm font-medium">
