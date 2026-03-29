@@ -189,6 +189,7 @@ export default function MenuBarPage() {
     const { data, error } = await supabase
       .from("menu_items")
       .insert({
+        establishment_id: establishmentId,
         category_id: activeCategoryId,
         name: newItemName.trim(),
         description: newItemDescription.trim() || null,
