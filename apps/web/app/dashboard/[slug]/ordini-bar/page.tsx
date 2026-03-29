@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,63 +14,22 @@ import {
   X,
   Bell,
   Volume2,
+  Loader2,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 type OrderStatus = "pending" | "preparing" | "ready" | "delivered" | "cancelled";
 
 interface BarOrder {
   id: string;
-  orderNumber: number;
-  umbrella: string;
-  clientName: string;
-  items: { name: string; qty: number; price: number }[];
-  total: number;
+  umbrella_label: string;
+  guest_name: string;
   status: OrderStatus;
-  createdAt: string;
-  notes?: string;
+  total_cents: number;
+  notes: string | null;
+  created_at: string;
+  items: { name: string; qty: number; price_cents: number }[];
 }
-
-const MOCK_ORDERS: BarOrder[] = [
-  {
-    id: "1", orderNumber: 42, umbrella: "A3", clientName: "Mario Rossi",
-    items: [
-      { name: "Spritz Aperol", qty: 2, price: 8 },
-      { name: "Insalata mista", qty: 1, price: 12 },
-    ],
-    total: 28, status: "pending", createdAt: "5 min fa",
-  },
-  {
-    id: "2", orderNumber: 43, umbrella: "B7", clientName: "Giulia Bianchi",
-    items: [
-      { name: "Acqua naturale 1L", qty: 3, price: 3 },
-      { name: "Gelato cono", qty: 1, price: 5 },
-    ],
-    total: 14, status: "pending", createdAt: "12 min fa",
-  },
-  {
-    id: "3", orderNumber: 41, umbrella: "C5", clientName: "Luca Verdi",
-    items: [
-      { name: "Birra Moretti", qty: 2, price: 5 },
-      { name: "Patatine fritte", qty: 1, price: 6 },
-    ],
-    total: 16, status: "preparing", createdAt: "18 min fa",
-  },
-  {
-    id: "4", orderNumber: 40, umbrella: "A8", clientName: "Anna Colombo",
-    items: [
-      { name: "Panino prosciutto", qty: 2, price: 7 },
-      { name: "Coca-Cola", qty: 2, price: 3 },
-    ],
-    total: 20, status: "ready", createdAt: "25 min fa",
-  },
-  {
-    id: "5", orderNumber: 39, umbrella: "D2", clientName: "Paolo Ferrari",
-    items: [
-      { name: "Caffe freddo", qty: 1, price: 3 },
-    ],
-    total: 3, status: "delivered", createdAt: "35 min fa",
-  },
-];
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; icon: typeof Clock; color: string; bgColor: string }> = {
   pending: { label: "Nuovo", icon: Bell, color: "text-partial", bgColor: "bg-partial/10 border-partial/30" },
@@ -88,25 +48,130 @@ const NEXT_STATUS: Record<OrderStatus, OrderStatus | null> = {
 };
 
 export default function OrdiniBarPage() {
-  const [orders, setOrders] = useState(MOCK_ORDERS);
+  const params = useParams();
+  const slug = params.slug as string;
+
+  const [orders, setOrders] = useState<BarOrder[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<OrderStatus | "all">("all");
   const [soundOn, setSoundOn] = useState(true);
+  const establishmentIdRef = useRef<string | null>(null);
 
-  function advanceStatus(orderId: string) {
-    setOrders(orders.map(o => {
-      if (o.id !== orderId) return o;
-      const next = NEXT_STATUS[o.status];
-      return next ? { ...o, status: next } : o;
-    }));
+  useEffect(() => {
+    loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  // Supabase Realtime subscription for new orders
+  useEffect(() => {
+    if (!establishmentIdRef.current) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel("bar-orders-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "bar_orders",
+          filter: `establishment_id=eq.${establishmentIdRef.current}`,
+        },
+        () => {
+          // Reload orders when a new one comes in
+          loadOrders();
+          if (soundOn) {
+            try { new Audio("/notification.mp3").play(); } catch {}
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "bar_orders",
+          filter: `establishment_id=eq.${establishmentIdRef.current}`,
+        },
+        () => { loadOrders(); }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, soundOn]);
+
+  async function loadOrders() {
+    const supabase = createClient();
+    const { data: est } = await supabase
+      .from("establishments")
+      .select("id")
+      .eq("slug", slug)
+      .single();
+
+    if (!est) return;
+    establishmentIdRef.current = est.id;
+
+    const { data } = await supabase
+      .from("bar_orders")
+      .select(`
+        id, umbrella_label, guest_name, status, total_cents, notes, created_at,
+        bar_order_items(quantity, price_cents, menu_items(name))
+      `)
+      .eq("establishment_id", est.id)
+      .order("created_at", { ascending: false });
+
+    if (data) {
+      const mapped: BarOrder[] = data.map((o) => ({
+        id: o.id,
+        umbrella_label: o.umbrella_label || "?",
+        guest_name: o.guest_name || "Cliente",
+        status: o.status as OrderStatus,
+        total_cents: o.total_cents,
+        notes: o.notes,
+        created_at: o.created_at,
+        items: ((o.bar_order_items as unknown as { quantity: number; price_cents: number; menu_items: { name: string } | null }[]) || []).map((item) => ({
+          name: item.menu_items?.name || "Articolo",
+          qty: item.quantity,
+          price_cents: item.price_cents,
+        })),
+      }));
+      setOrders(mapped);
+    }
+    setLoading(false);
   }
 
-  const filtered = filter === "all"
-    ? orders
-    : orders.filter(o => o.status === filter);
+  async function advanceStatus(orderId: string) {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    const next = NEXT_STATUS[order.status];
+    if (!next) return;
 
-  const pendingCount = orders.filter(o => o.status === "pending").length;
-  const preparingCount = orders.filter(o => o.status === "preparing").length;
-  const readyCount = orders.filter(o => o.status === "ready").length;
+    const supabase = createClient();
+    await supabase.from("bar_orders").update({ status: next }).eq("id", orderId);
+    setOrders(orders.map((o) => (o.id === orderId ? { ...o, status: next } : o)));
+  }
+
+  function timeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Ora";
+    if (mins < 60) return `${mins} min fa`;
+    const hours = Math.floor(mins / 60);
+    return `${hours}h fa`;
+  }
+
+  const filtered = filter === "all" ? orders : orders.filter((o) => o.status === filter);
+  const pendingCount = orders.filter((o) => o.status === "pending").length;
+  const preparingCount = orders.filter((o) => o.status === "preparing").length;
+  const readyCount = orders.filter((o) => o.status === "ready").length;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-brand-azure" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -114,7 +179,9 @@ export default function OrdiniBarPage() {
         <div>
           <h1 className="text-2xl font-bold">Ordini bar</h1>
           <p className="text-muted-foreground">
-            Gestisci gli ordini in tempo reale.
+            {orders.length === 0
+              ? "Nessun ordine ancora. Appariranno qui in tempo reale."
+              : "Gestisci gli ordini in tempo reale."}
           </p>
         </div>
         <Button
@@ -179,15 +246,12 @@ export default function OrdiniBarPage() {
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm font-bold">
-                          #{order.orderNumber}
-                        </span>
                         <Badge variant="outline" className="gap-1">
                           <Umbrella className="h-3 w-3" />
-                          {order.umbrella}
+                          {order.umbrella_label}
                         </Badge>
                         <span className="text-sm text-muted-foreground">
-                          {order.clientName}
+                          {order.guest_name}
                         </span>
                       </div>
                       <div className="mt-1 space-y-0.5">
@@ -195,7 +259,7 @@ export default function OrdiniBarPage() {
                           <p key={i} className="text-sm">
                             {item.qty}x {item.name}{" "}
                             <span className="text-muted-foreground">
-                              ({item.price * item.qty}&euro;)
+                              ({((item.price_cents * item.qty) / 100).toFixed(2)}&euro;)
                             </span>
                           </p>
                         ))}
@@ -211,9 +275,11 @@ export default function OrdiniBarPage() {
                   <div className="flex flex-col items-end gap-2">
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                       <Clock className="h-3 w-3" />
-                      {order.createdAt}
+                      {timeAgo(order.created_at)}
                     </div>
-                    <span className="text-xl font-bold">{order.total}&euro;</span>
+                    <span className="text-xl font-bold">
+                      {(order.total_cents / 100).toFixed(2)}&euro;
+                    </span>
                     {nextStatus && (
                       <Button
                         variant="brand"
@@ -235,7 +301,11 @@ export default function OrdiniBarPage() {
         {filtered.length === 0 && (
           <Card>
             <CardContent className="flex min-h-[200px] items-center justify-center p-6">
-              <p className="text-muted-foreground">Nessun ordine trovato.</p>
+              <p className="text-muted-foreground">
+                {orders.length === 0
+                  ? "Nessun ordine bar ancora. Gli ordini dai clienti appariranno qui."
+                  : "Nessun ordine trovato con questo filtro."}
+              </p>
             </CardContent>
           </Card>
         )}

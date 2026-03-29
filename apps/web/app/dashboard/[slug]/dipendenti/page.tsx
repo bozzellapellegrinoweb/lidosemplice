@@ -1,40 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Mail, Phone, Shield, Trash2, UserPlus } from "lucide-react";
+import { Plus, Mail, Phone, Trash2, UserPlus, Loader2, Users } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-interface Employee {
+interface Member {
   id: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: "admin" | "employee";
-  isActive: boolean;
-  permissions: string[];
+  user_id: string;
+  role: string;
+  permissions: Record<string, boolean>;
+  is_active: boolean;
+  user_profiles: {
+    full_name: string;
+    phone: string;
+  } | null;
+  user_email?: string;
 }
-
-const MOCK_EMPLOYEES: Employee[] = [
-  {
-    id: "1", name: "Marco Bagnino", email: "marco@lidoazzurro.it", phone: "+39 333 1111111",
-    role: "employee", isActive: true, permissions: ["check_in", "bar_orders"],
-  },
-  {
-    id: "2", name: "Laura Receptionist", email: "laura@lidoazzurro.it", phone: "+39 333 2222222",
-    role: "employee", isActive: true, permissions: ["check_in", "bookings", "bar_orders"],
-  },
-  {
-    id: "3", name: "Fabio Bar", email: "fabio@lidoazzurro.it", phone: "+39 333 3333333",
-    role: "employee", isActive: true, permissions: ["bar_orders"],
-  },
-  {
-    id: "4", name: "Chiara Stagista", email: "chiara@lidoazzurro.it", phone: "+39 333 4444444",
-    role: "employee", isActive: false, permissions: ["check_in"],
-  },
-];
 
 const PERMISSION_LABELS: Record<string, string> = {
   check_in: "Check-in",
@@ -46,9 +32,118 @@ const PERMISSION_LABELS: Record<string, string> = {
 };
 
 export default function DipendentiPage() {
-  const [employees, setEmployees] = useState(MOCK_EMPLOYEES);
+  const params = useParams();
+  const slug = params.slug as string;
+
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [establishmentId, setEstablishmentId] = useState<string | null>(null);
+
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+
+  useEffect(() => {
+    loadMembers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  async function loadMembers() {
+    const supabase = createClient();
+    const { data: est } = await supabase
+      .from("establishments")
+      .select("id")
+      .eq("slug", slug)
+      .single();
+
+    if (!est) return;
+    setEstablishmentId(est.id);
+
+    const { data } = await supabase
+      .from("establishment_members")
+      .select("*, user_profiles(full_name, phone)")
+      .eq("establishment_id", est.id)
+      .order("created_at");
+
+    if (data) setMembers(data as unknown as Member[]);
+    setLoading(false);
+  }
+
+  async function inviteMember() {
+    if (!establishmentId || !inviteEmail) return;
+    setInviting(true);
+    setInviteError("");
+
+    const supabase = createClient();
+
+    // Cerca l'utente per email nelle auth
+    // Per ora creiamo un placeholder — in produzione invieremmo un email
+    // Qui cerchiamo se l'utente esiste già
+    const { data: existingUser } = await supabase
+      .from("user_profiles")
+      .select("id")
+      .eq("id", (
+        await supabase.rpc("get_user_id_by_email", { email_input: inviteEmail })
+      ).data)
+      .single();
+
+    if (existingUser) {
+      // Aggiungi come membro
+      const { error } = await supabase.from("establishment_members").insert({
+        establishment_id: establishmentId,
+        user_id: existingUser.id,
+        role: "employee",
+        permissions: { check_in: true, bar_orders: true },
+      });
+
+      if (error) {
+        if (error.code === "23505") {
+          setInviteError("Questo utente è già un membro.");
+        } else {
+          setInviteError(error.message);
+        }
+      } else {
+        setInviteEmail("");
+        setShowInvite(false);
+        loadMembers();
+      }
+    } else {
+      // Per ora mostriamo messaggio
+      setInviteError("Utente non trovato. Deve prima registrarsi su LidoFacile.");
+    }
+
+    setInviting(false);
+  }
+
+  async function toggleActive(member: Member) {
+    const supabase = createClient();
+    const newActive = !member.is_active;
+    await supabase
+      .from("establishment_members")
+      .update({ is_active: newActive })
+      .eq("id", member.id);
+
+    setMembers(
+      members.map((m) =>
+        m.id === member.id ? { ...m, is_active: newActive } : m
+      )
+    );
+  }
+
+  async function removeMember(id: string) {
+    const supabase = createClient();
+    await supabase.from("establishment_members").delete().eq("id", id);
+    setMembers(members.filter((m) => m.id !== id));
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-brand-azure" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -65,7 +160,6 @@ export default function DipendentiPage() {
         </Button>
       </div>
 
-      {/* Invito */}
       {showInvite && (
         <Card className="border-brand-azure/30">
           <CardContent className="p-4">
@@ -77,67 +171,91 @@ export default function DipendentiPage() {
                 onChange={(e) => setInviteEmail(e.target.value)}
                 className="flex-1"
               />
-              <Button variant="brand" onClick={() => { setShowInvite(false); setInviteEmail(""); }}>
-                <Mail className="h-4 w-4" />
+              <Button variant="brand" onClick={inviteMember} disabled={inviting || !inviteEmail}>
+                {inviting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                 Invia invito
               </Button>
-              <Button variant="outline" onClick={() => setShowInvite(false)}>
+              <Button variant="outline" onClick={() => { setShowInvite(false); setInviteError(""); }}>
                 Annulla
               </Button>
             </div>
+            {inviteError && (
+              <p className="mt-2 text-sm text-destructive">{inviteError}</p>
+            )}
             <p className="mt-2 text-sm text-muted-foreground">
-              Il dipendente ricevera un email con il link per registrarsi e accedere al gestionale.
+              Il dipendente deve avere un account LidoFacile per essere aggiunto al team.
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* Lista dipendenti */}
-      <div className="space-y-3">
-        {employees.map((emp) => (
-          <Card key={emp.id} className={!emp.isActive ? "opacity-60" : ""}>
-            <CardContent className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-azure/10 text-lg font-bold text-brand-azure">
-                  {emp.name.charAt(0)}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{emp.name}</p>
-                    {!emp.isActive && <Badge variant="outline">Disattivato</Badge>}
+      {members.length === 0 ? (
+        <Card>
+          <CardContent className="flex min-h-[200px] flex-col items-center justify-center p-6">
+            <Users className="mb-4 h-12 w-12 text-muted-foreground/30" />
+            <p className="text-center text-muted-foreground">
+              Nessun dipendente aggiunto al team.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {members.map((member) => (
+            <Card key={member.id} className={!member.is_active ? "opacity-60" : ""}>
+              <CardContent className="flex items-center justify-between p-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-azure/10 text-lg font-bold text-brand-azure">
+                    {(member.user_profiles?.full_name || "?").charAt(0)}
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {emp.email}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Phone className="h-3 w-3" />
-                      {emp.phone}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex gap-1">
-                    {emp.permissions.map((p) => (
-                      <Badge key={p} variant="secondary" className="text-xs">
-                        {PERMISSION_LABELS[p]}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">
+                        {member.user_profiles?.full_name || "Utente"}
+                      </p>
+                      <Badge variant={member.role === "admin" ? "available" : "outline"}>
+                        {member.role === "admin" ? "Admin" : "Dipendente"}
                       </Badge>
-                    ))}
+                      {!member.is_active && <Badge variant="outline">Disattivato</Badge>}
+                    </div>
+                    {member.user_profiles?.phone && (
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Phone className="h-3 w-3" />
+                        {member.user_profiles.phone}
+                      </div>
+                    )}
+                    <div className="mt-1 flex gap-1">
+                      {Object.entries(member.permissions || {}).map(([key, val]) =>
+                        val ? (
+                          <Badge key={key} variant="secondary" className="text-xs">
+                            {PERMISSION_LABELS[key] || key}
+                          </Badge>
+                        ) : null
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm">
-                  <Shield className="h-4 w-4" />
-                  Permessi
-                </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <div className="flex items-center gap-2">
+                  {member.role !== "admin" && (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => toggleActive(member)}>
+                        {member.is_active ? "Disattiva" : "Attiva"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={() => removeMember(member.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

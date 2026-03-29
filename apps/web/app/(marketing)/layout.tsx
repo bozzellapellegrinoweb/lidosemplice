@@ -13,7 +13,7 @@ export default function MarketingLayout({
       <header className="fixed top-0 z-50 w-full border-b border-white/10 bg-brand-navy/80 backdrop-blur-xl">
         <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center">
-            <Logo size="sm" />
+            <Logo size="sm" className="text-white" />
           </Link>
 
           <div className="hidden items-center gap-8 md:flex">
@@ -63,9 +63,9 @@ export default function MarketingLayout({
         <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="grid gap-8 md:grid-cols-4">
             <div>
-              <Logo size="sm" />
+              <Logo size="sm" className="text-white" />
               <p className="mt-4 text-sm text-white/50">
-                Il gestionale semplice per la tua spiaggia. Zero commissioni,
+                Il gestionale semplice per il tuo stabilimento. Zero commissioni,
                 tutto incluso.
               </p>
             </div>

@@ -2,16 +2,19 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowRight, Loader2 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -19,10 +22,71 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // TODO: Supabase auth
-      console.log("Login:", { email, password });
+      const supabase = createClient();
+
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        setError(
+          authError.message === "Invalid login credentials"
+            ? "Email o password non corretti."
+            : authError.message
+        );
+        return;
+      }
+
+      // Trova lo stabilimento dell'utente
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setError("Errore durante il login.");
+        return;
+      }
+
+      // Super admin? Vai a /admin
+      const superAdminEmails = ["info@lido-facile.it"];
+      if (superAdminEmails.includes(user.email || "")) {
+        router.push("/admin");
+        return;
+      }
+
+      // Cerca stabilimento di proprietà
+      const { data: owned } = await supabase
+        .from("establishments")
+        .select("slug")
+        .eq("owner_id", user.id)
+        .limit(1)
+        .single();
+
+      if (owned?.slug) {
+        router.push(`/dashboard/${owned.slug}`);
+        return;
+      }
+
+      // Cerca come membro
+      const { data: membership } = await supabase
+        .from("establishment_members")
+        .select("establishment_id, establishments(slug)")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .limit(1)
+        .single();
+
+      if (membership?.establishments) {
+        const est = membership.establishments as unknown as { slug: string };
+        router.push(`/dashboard/${est.slug}`);
+        return;
+      }
+
+      // Nessuno stabilimento
+      router.push("/dashboard/nuovo");
     } catch {
-      setError("Credenziali non valide. Riprova.");
+      setError("Si è verificato un errore. Riprova.");
     } finally {
       setLoading(false);
     }
@@ -120,8 +184,8 @@ export default function LoginPage() {
         <div className="max-w-md text-center">
           <Logo size="lg" variant="icon" className="mx-auto mb-8" />
           <h2 className="text-3xl font-bold text-white">
-            La tua spiaggia,{" "}
-            <span className="text-brand-gradient">gestita facile</span>
+            Il tuo stabilimento,{" "}
+            <span className="text-brand-gradient">gestito facile.</span>
           </h2>
           <p className="mt-4 text-lg text-white/60">
             Prenotazioni, pagamenti e mappa interattiva. Tutto in un unico

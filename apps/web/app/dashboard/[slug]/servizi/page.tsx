@@ -1,79 +1,127 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  GripVertical,
-  X,
-  Check,
-  Package,
-} from "lucide-react";
+import { Plus, Trash2, Loader2, Package, GripVertical } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 interface Service {
   id: string;
   name: string;
   description: string;
-  price: number;
-  isDaily: boolean;
-  isActive: boolean;
-  icon: string;
+  price_cents: number;
+  is_active: boolean;
+  sort_order: number;
 }
 
-const MOCK_SERVICES: Service[] = [
-  { id: "1", name: "Asciugamano mare", description: "Asciugamano grande in cotone", price: 15, isDaily: false, isActive: true, icon: "towel" },
-  { id: "2", name: "Doccia calda", description: "Accesso alla doccia con acqua calda", price: 2, isDaily: true, isActive: true, icon: "shower" },
-  { id: "3", name: "Parcheggio", description: "Posto auto riservato", price: 5, isDaily: true, isActive: true, icon: "car" },
-  { id: "4", name: "Wifi Premium", description: "Connessione wifi ad alta velocita", price: 3, isDaily: true, isActive: true, icon: "wifi" },
-  { id: "5", name: "Kit snorkeling", description: "Maschera e boccaglio a noleggio", price: 10, isDaily: false, isActive: false, icon: "waves" },
-  { id: "6", name: "Cassaforte", description: "Cassetta di sicurezza sotto l'ombrellone", price: 5, isDaily: true, isActive: true, icon: "lock" },
-];
-
 export default function ServiziPage() {
-  const [services, setServices] = useState(MOCK_SERVICES);
-  const [editing, setEditing] = useState<string | null>(null);
+  const params = useParams();
+  const slug = params.slug as string;
+
+  const [services, setServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [establishmentId, setEstablishmentId] = useState<string | null>(null);
+
   const [showAdd, setShowAdd] = useState(false);
-  const [newService, setNewService] = useState({
-    name: "", description: "", price: "", isDaily: false,
-  });
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [newPrice, setNewPrice] = useState("");
+  const [adding, setAdding] = useState(false);
 
-  function toggleActive(id: string) {
-    setServices(services.map(s =>
-      s.id === id ? { ...s, isActive: !s.isActive } : s
-    ));
+  useEffect(() => {
+    loadServices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  async function loadServices() {
+    const supabase = createClient();
+    const { data: est } = await supabase
+      .from("establishments")
+      .select("id")
+      .eq("slug", slug)
+      .single();
+
+    if (!est) return;
+    setEstablishmentId(est.id);
+
+    const { data } = await supabase
+      .from("additional_services")
+      .select("*")
+      .eq("establishment_id", est.id)
+      .order("sort_order", { ascending: true });
+
+    if (data) setServices(data);
+    setLoading(false);
   }
 
-  function deleteService(id: string) {
-    setServices(services.filter(s => s.id !== id));
+  async function addService() {
+    if (!establishmentId || !newName || !newPrice) return;
+    setAdding(true);
+
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("additional_services")
+      .insert({
+        establishment_id: establishmentId,
+        name: newName,
+        description: newDescription,
+        price_cents: Math.round(parseFloat(newPrice) * 100),
+        is_active: true,
+        sort_order: services.length,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setServices([...services, data]);
+      setNewName("");
+      setNewDescription("");
+      setNewPrice("");
+      setShowAdd(false);
+    }
+    setAdding(false);
   }
 
-  function addService() {
-    if (!newService.name || !newService.price) return;
-    setServices([...services, {
-      id: Date.now().toString(),
-      name: newService.name,
-      description: newService.description,
-      price: parseFloat(newService.price),
-      isDaily: newService.isDaily,
-      isActive: true,
-      icon: "package",
-    }]);
-    setNewService({ name: "", description: "", price: "", isDaily: false });
-    setShowAdd(false);
+  async function toggleActive(service: Service) {
+    const supabase = createClient();
+    const newActive = !service.is_active;
+    await supabase
+      .from("additional_services")
+      .update({ is_active: newActive })
+      .eq("id", service.id);
+
+    setServices(
+      services.map((s) =>
+        s.id === service.id ? { ...s, is_active: newActive } : s
+      )
+    );
+  }
+
+  async function deleteService(id: string) {
+    const supabase = createClient();
+    await supabase.from("additional_services").delete().eq("id", id);
+    setServices(services.filter((s) => s.id !== id));
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-brand-azure" />
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Servizi aggiuntivi</h1>
+          <h1 className="text-2xl font-bold">Servizi extra</h1>
           <p className="text-muted-foreground">
-            Configura i servizi extra che i clienti possono aggiungere alla prenotazione.
+            Servizi aggiuntivi prenotabili dai clienti.
           </p>
         </div>
         <Button variant="brand" onClick={() => setShowAdd(true)}>
@@ -82,116 +130,87 @@ export default function ServiziPage() {
         </Button>
       </div>
 
-      {/* Form aggiungi */}
       {showAdd && (
         <Card className="border-brand-azure/30">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">Nuovo servizio</CardTitle>
-            <button onClick={() => setShowAdd(false)} className="rounded-md p-1 hover:bg-muted">
-              <X className="h-4 w-4" />
-            </button>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="space-y-3 p-4">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Nome</label>
+                <label className="mb-1 block text-sm font-medium">Nome</label>
                 <Input
-                  placeholder="Es. Asciugamano mare"
-                  value={newService.name}
-                  onChange={(e) => setNewService({ ...newService, name: e.target.value })}
+                  placeholder="Es. Asciugamano"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Prezzo (&euro;)</label>
+                <label className="mb-1 block text-sm font-medium">Descrizione</label>
+                <Input
+                  placeholder="Telo mare grande"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Prezzo (&euro;)</label>
                 <Input
                   type="number"
                   step="0.50"
                   min="0"
-                  placeholder="15.00"
-                  value={newService.price}
-                  onChange={(e) => setNewService({ ...newService, price: e.target.value })}
+                  placeholder="5.00"
+                  value={newPrice}
+                  onChange={(e) => setNewPrice(e.target.value)}
                 />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium">Descrizione</label>
-                <Input
-                  placeholder="Descrizione breve del servizio"
-                  value={newService.description}
-                  onChange={(e) => setNewService({ ...newService, description: e.target.value })}
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setNewService({ ...newService, isDaily: !newService.isDaily })}
-                  className={`flex h-6 w-11 items-center rounded-full transition-colors ${
-                    newService.isDaily ? "bg-brand-azure" : "bg-muted"
-                  }`}
-                >
-                  <span
-                    className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                      newService.isDaily ? "translate-x-5" : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
-                <span className="text-sm">Prezzo giornaliero (si applica per ogni giorno)</span>
               </div>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowAdd(false)}>Annulla</Button>
-              <Button variant="brand" onClick={addService}>
-                <Check className="h-4 w-4" />
-                Salva servizio
+            <div className="flex gap-2">
+              <Button variant="brand" onClick={addService} disabled={adding || !newName || !newPrice}>
+                {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Aggiungi
+              </Button>
+              <Button variant="outline" onClick={() => setShowAdd(false)}>
+                Annulla
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Lista servizi */}
-      <div className="space-y-3">
-        {services.map((service) => (
-          <Card key={service.id} className={!service.isActive ? "opacity-60" : ""}>
-            <CardContent className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-4">
-                <GripVertical className="h-5 w-5 cursor-grab text-muted-foreground" />
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-azure/10">
-                  <Package className="h-5 w-5 text-brand-azure" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{service.name}</p>
-                    {service.isDaily && (
-                      <Badge variant="secondary" className="text-xs">
-                        /giorno
-                      </Badge>
-                    )}
-                    {!service.isActive && (
-                      <Badge variant="outline" className="text-xs">
-                        Disattivato
-                      </Badge>
+      {services.length === 0 ? (
+        <Card>
+          <CardContent className="flex min-h-[200px] flex-col items-center justify-center p-6">
+            <Package className="mb-4 h-12 w-12 text-muted-foreground/30" />
+            <p className="text-center text-muted-foreground">
+              Nessun servizio aggiuntivo configurato.
+            </p>
+            <Button variant="brand" size="sm" className="mt-4" onClick={() => setShowAdd(true)}>
+              <Plus className="h-4 w-4" />
+              Aggiungi il primo servizio
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {services.map((service) => (
+            <Card key={service.id} className={!service.is_active ? "opacity-60" : ""}>
+              <CardContent className="flex items-center justify-between p-4">
+                <div className="flex items-center gap-3">
+                  <GripVertical className="h-5 w-5 cursor-grab text-muted-foreground/30" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{service.name}</p>
+                      {!service.is_active && <Badge variant="outline">Disattivato</Badge>}
+                    </div>
+                    {service.description && (
+                      <p className="text-sm text-muted-foreground">{service.description}</p>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">{service.description}</p>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <span className="text-xl font-bold">{service.price}&euro;</span>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => toggleActive(service.id)}
-                    className={`flex h-6 w-11 items-center rounded-full transition-colors ${
-                      service.isActive ? "bg-available" : "bg-muted"
-                    }`}
-                  >
-                    <span
-                      className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                        service.isActive ? "translate-x-5" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <Pencil className="h-4 w-4" />
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-semibold">
+                    {(service.price_cents / 100).toFixed(2)}&euro;
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => toggleActive(service)}>
+                    {service.is_active ? "Disattiva" : "Attiva"}
                   </Button>
                   <Button
                     variant="ghost"
@@ -202,11 +221,11 @@ export default function ServiziPage() {
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -11,16 +11,16 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "LidoFacile.it — Il gestionale semplice per la tua spiaggia",
+    default: "LidoFacile.it — Il gestionale semplice per il tuo stabilimento",
     template: "%s | LidoFacile.it",
   },
   description:
     "Gestisci prenotazioni, ombrelloni e pagamenti del tuo stabilimento balneare in modo semplice e intuitivo. Zero commissioni, tutto incluso.",
   keywords: [
-    "gestionale spiaggia",
+    "gestionale stabilimento balneare",
     "prenotazione ombrelloni",
     "stabilimento balneare",
-    "software spiaggia",
+    "software stabilimento balneare",
     "prenotazione lettini",
     "gestione lido",
   ],
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     type: "website",
     locale: "it_IT",
     siteName: "LidoFacile.it",
-    title: "LidoFacile.it — Il gestionale semplice per la tua spiaggia",
+    title: "LidoFacile.it — Il gestionale semplice per il tuo stabilimento",
     description:
       "Gestisci prenotazioni, ombrelloni e pagamenti del tuo stabilimento balneare. Zero commissioni.",
   },
@@ -42,6 +42,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="it" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#00BFFF" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body className="min-h-screen antialiased">
         {children}
         <Toaster

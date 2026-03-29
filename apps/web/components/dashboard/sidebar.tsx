@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import {
@@ -17,8 +17,11 @@ import {
   LogOut,
   ChevronLeft,
   Menu,
+  Loader2,
+  Coffee,
 } from "lucide-react";
 import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 const navigation = [
   {
@@ -27,7 +30,7 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Mappa spiaggia",
+    label: "Mappa stabilimento",
     href: "/mappa",
     icon: Map,
   },
@@ -52,6 +55,11 @@ const navigation = [
     icon: Users,
   },
   {
+    label: "Menu bar",
+    href: "/menu-bar",
+    icon: Coffee,
+  },
+  {
     label: "Ordini bar",
     href: "/ordini-bar",
     icon: UtensilsCrossed,
@@ -70,12 +78,21 @@ const navigation = [
 
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   // Estrai il basePath dalla URL (es. /dashboard/lido-azzurro)
   const segments = pathname.split("/");
   const basePath = segments.slice(0, 3).join("/"); // /dashboard/[slug]
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/auth/login");
+  }
 
   return (
     <>
@@ -166,10 +183,16 @@ export function DashboardSidebar() {
         {/* User / Logout */}
         <div className="border-t border-sidebar-border p-3">
           <button
+            onClick={handleLogout}
+            disabled={loggingOut}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
           >
-            <LogOut className="h-5 w-5 shrink-0" />
-            {!collapsed && <span>Esci</span>}
+            {loggingOut ? (
+              <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
+            ) : (
+              <LogOut className="h-5 w-5 shrink-0" />
+            )}
+            {!collapsed && <span>{loggingOut ? "Uscita..." : "Esci"}</span>}
           </button>
         </div>
       </aside>

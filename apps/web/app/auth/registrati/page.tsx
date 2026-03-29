@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowRight, Loader2, Check } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { slugify } from "@/lib/utils";
 
 export default function RegisterPage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const router = useRouter();
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -25,6 +30,8 @@ export default function RegisterPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
+
     if (step === 1) {
       setStep(2);
       return;
@@ -32,10 +39,106 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      // TODO: Supabase auth + create establishment
-      console.log("Register:", formData);
+      const supabase = createClient();
+
+      // 1. Registra l'utente
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.fullName,
+          },
+        },
+      });
+
+      if (authError) {
+        if (authError.message.includes("already registered")) {
+          setError("Questa email è già registrata. Prova ad accedere.");
+        } else {
+          setError(authError.message);
+        }
+        return;
+      }
+
+      if (!authData.user) {
+        setError("Errore durante la registrazione.");
+        return;
+      }
+
+      // 2. Aggiorna profilo con telefono e ruolo admin
+      await supabase
+        .from("user_profiles")
+        .update({
+          full_name: formData.fullName,
+          phone: formData.phone,
+          role: "admin",
+        })
+        .eq("id", authData.user.id);
+
+      // 3. Genera slug univoco
+      let slug = slugify(formData.establishmentName);
+      const { data: existing } = await supabase
+        .from("establishments")
+        .select("slug")
+        .like("slug", `${slug}%`);
+
+      if (existing && existing.length > 0) {
+        slug = `${slug}-${existing.length + 1}`;
+      }
+
+      // 4. Crea lo stabilimento
+      const { data: establishment, error: estError } = await supabase
+        .from("establishments")
+        .insert({
+          owner_id: authData.user.id,
+          name: formData.establishmentName,
+          slug,
+          city: formData.city,
+          subscription_status: "trial",
+          subscription_expires_at: new Date(
+            Date.now() + 14 * 24 * 60 * 60 * 1000
+          ).toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (estError) {
+        setError("Errore nella creazione dello stabilimento: " + estError.message);
+        return;
+      }
+
+      // 5. Aggiungi come membro admin
+      if (establishment) {
+        await supabase.from("establishment_members").insert({
+          establishment_id: establishment.id,
+          user_id: authData.user.id,
+          role: "admin",
+          permissions: {
+            check_in: true,
+            bookings: true,
+            bar_orders: true,
+            pricing: true,
+            analytics: true,
+            settings: true,
+          },
+        });
+      }
+
+      // 6. Crea mappa di default
+      if (establishment) {
+        await supabase.from("beach_maps").insert({
+          establishment_id: establishment.id,
+          name: "Spiaggia",
+          width: 100,
+          height: 50,
+          is_active: true,
+        });
+      }
+
+      router.push(`/dashboard/${slug}`);
     } catch {
-      // handle error
+      setError("Si è verificato un errore. Riprova.");
     } finally {
       setLoading(false);
     }
@@ -76,6 +179,12 @@ export default function RegisterPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+            {error && (
+              <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
             {step === 1 ? (
               <>
                 <div>
@@ -135,11 +244,11 @@ export default function RegisterPage() {
                   <Input
                     id="password"
                     type="password"
-                    placeholder="Minimo 8 caratteri"
+                    placeholder="Minimo 6 caratteri"
                     value={formData.password}
                     onChange={(e) => updateField("password", e.target.value)}
                     required
-                    minLength={8}
+                    minLength={6}
                   />
                 </div>
               </>
@@ -241,7 +350,7 @@ export default function RegisterPage() {
           </p>
           <div className="mt-8 space-y-3 text-left">
             {[
-              "Mappa interattiva della spiaggia",
+              "Mappa interattiva dello stabilimento",
               "Prenotazioni online illimitate",
               "Zero commissioni sui pagamenti",
               "Assistente AI integrato",

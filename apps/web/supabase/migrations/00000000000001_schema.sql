@@ -123,7 +123,7 @@ CREATE INDEX idx_members_user ON establishment_members(user_id);
 CREATE TABLE beach_maps (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   establishment_id UUID NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
-  name TEXT DEFAULT 'Mappa principale',
+  name TEXT DEFAULT 'Spiaggia',
   width INT NOT NULL DEFAULT 100,
   height INT NOT NULL DEFAULT 50,
   background_image_url TEXT,

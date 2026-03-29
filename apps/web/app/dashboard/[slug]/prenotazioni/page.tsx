@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Search,
-  Filter,
   Plus,
   QrCode,
   Eye,
@@ -16,67 +16,238 @@ import {
   Umbrella,
   Phone,
   Mail,
+  Loader2,
+  UserCheck,
+  Package,
+  Home,
+  Tent,
+  BedSingle,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 const STATUS_MAP: Record<string, { label: string; variant: "available" | "partial" | "occupied" | "outline" }> = {
   confirmed: { label: "Confermato", variant: "partial" },
-  checked_in: { label: "In spiaggia", variant: "available" },
+  checked_in: { label: "Check-in", variant: "available" },
   pending: { label: "In attesa", variant: "outline" },
   completed: { label: "Completato", variant: "outline" },
   cancelled: { label: "Cancellato", variant: "occupied" },
   no_show: { label: "No show", variant: "occupied" },
 };
 
-const MOCK_BOOKINGS = [
-  {
-    id: "1", code: "BK-A3X9P", name: "Mario Rossi", email: "mario@email.it", phone: "+39 333 1234567",
-    umbrella: "A3", sunbeds: 2, startDate: "2026-07-15", endDate: "2026-07-15",
-    status: "checked_in", total: 45, paidAt: "2026-07-14T10:30:00",
-  },
-  {
-    id: "2", code: "BK-H7K2M", name: "Giulia Bianchi", email: "giulia@email.it", phone: "+39 347 9876543",
-    umbrella: "B7", sunbeds: 2, startDate: "2026-07-15", endDate: "2026-07-16",
-    status: "confirmed", total: 70, paidAt: "2026-07-13T14:15:00",
-  },
-  {
-    id: "3", code: "BK-R9W4N", name: "Luca Verdi", email: "luca@email.it", phone: "+39 320 5551234",
-    umbrella: "C2, C3", sunbeds: 4, startDate: "2026-07-16", endDate: "2026-07-22",
-    status: "confirmed", total: 350, paidAt: "2026-07-10T09:00:00",
-  },
-  {
-    id: "4", code: "BK-T5Y8L", name: "Anna Colombo", email: "anna@email.it", phone: "+39 339 7771234",
-    umbrella: "A10", sunbeds: 3, startDate: "2026-07-15", endDate: "2026-07-15",
-    status: "pending", total: 45, paidAt: null,
-  },
-  {
-    id: "5", code: "BK-M2P6Q", name: "Paolo Ferrari", email: "paolo@email.it", phone: "+39 348 1112222",
-    umbrella: "D5", sunbeds: 2, startDate: "2026-07-14", endDate: "2026-07-14",
-    status: "completed", total: 20, paidAt: "2026-07-13T18:00:00",
-  },
-  {
-    id: "6", code: "BK-K8N3R", name: "Sara Esposito", email: "sara@email.it", phone: "+39 351 3334444",
-    umbrella: "B2", sunbeds: 2, startDate: "2026-07-14", endDate: "2026-07-14",
-    status: "no_show", total: 35, paidAt: "2026-07-12T11:30:00",
-  },
-];
+interface Booking {
+  id: string;
+  booking_code: string;
+  guest_name: string;
+  guest_email: string;
+  guest_phone: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+  total_cents: number;
+  created_at: string;
+  qr_code_token: string;
+}
+
+interface BookingItem {
+  id: string;
+  element_type: string;
+  sunbeds_count: number;
+  price_cents: number;
+  element_label: string;
+  row_label: string;
+  zone_name: string;
+}
+
+const ELEMENT_ICONS: Record<string, typeof Umbrella> = {
+  umbrella: Umbrella,
+  cabana: Home,
+  gazebo: Tent,
+  sunbed: BedSingle,
+};
+
+const ELEMENT_LABELS: Record<string, string> = {
+  umbrella: "Ombrellone",
+  cabana: "Cabana",
+  gazebo: "Gazebo",
+  sunbed: "Lettino",
+};
+
+const ELEMENT_CAP_LABELS: Record<string, string> = {
+  umbrella: "lettini",
+  cabana: "persone",
+  gazebo: "persone",
+  sunbed: "posti",
+};
+
+interface BookingService {
+  id: string;
+  quantity: number;
+  price_cents: number;
+  service_name: string;
+}
 
 export default function PrenotazioniPage() {
+  const params = useParams();
+  const slug = params.slug as string;
+
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [bookingItems, setBookingItems] = useState<BookingItem[]>([]);
+  const [bookingServices, setBookingServices] = useState<BookingService[]>([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  const filtered = MOCK_BOOKINGS.filter((b) => {
+  useEffect(() => {
+    loadBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  async function loadBookings() {
+    const supabase = createClient();
+    const { data: est } = await supabase
+      .from("establishments")
+      .select("id")
+      .eq("slug", slug)
+      .single();
+
+    if (!est) return;
+
+    const { data } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("establishment_id", est.id)
+      .order("created_at", { ascending: false });
+
+    if (data) setBookings(data);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (selectedBooking) {
+      loadBookingDetail(selectedBooking);
+    } else {
+      setBookingItems([]);
+      setBookingServices([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBooking]);
+
+  async function loadBookingDetail(bookingId: string) {
+    setLoadingDetail(true);
+    const supabase = createClient();
+
+    // Load booking items with element and row info
+    const { data: items } = await supabase
+      .from("booking_items")
+      .select("id, sunbeds_count, price_cents, map_element_id")
+      .eq("booking_id", bookingId);
+
+    if (items && items.length > 0) {
+      const elementIds = items.map((i) => i.map_element_id);
+      const { data: elements } = await supabase
+        .from("map_elements")
+        .select("id, label, element_type, map_row_id")
+        .in("id", elementIds);
+
+      const rowIds = [...new Set(elements?.map((e) => e.map_row_id) || [])];
+      const { data: rows } = await supabase
+        .from("map_rows")
+        .select("id, label, beach_map_id")
+        .in("id", rowIds);
+
+      const mapIds = [...new Set(rows?.map((r) => r.beach_map_id) || [])];
+      const { data: maps } = await supabase
+        .from("beach_maps")
+        .select("id, name")
+        .in("id", mapIds);
+
+      const enriched: BookingItem[] = items.map((item) => {
+        const element = elements?.find((e) => e.id === item.map_element_id);
+        const row = rows?.find((r) => r.id === element?.map_row_id);
+        const map = maps?.find((m) => m.id === row?.beach_map_id);
+        return {
+          id: item.id,
+          element_type: element?.element_type || "umbrella",
+          sunbeds_count: item.sunbeds_count,
+          price_cents: item.price_cents,
+          element_label: element?.label || "?",
+          row_label: row?.label || "?",
+          zone_name: map?.name || "Spiaggia",
+        };
+      });
+      setBookingItems(enriched);
+    } else {
+      setBookingItems([]);
+    }
+
+    // Load booking services with service name
+    const { data: bServices } = await supabase
+      .from("booking_services")
+      .select("id, quantity, price_cents, service_id")
+      .eq("booking_id", bookingId);
+
+    if (bServices && bServices.length > 0) {
+      const serviceIds = bServices.map((s) => s.service_id);
+      const { data: services } = await supabase
+        .from("additional_services")
+        .select("id, name")
+        .in("id", serviceIds);
+
+      const enriched: BookingService[] = bServices.map((bs) => ({
+        id: bs.id,
+        quantity: bs.quantity,
+        price_cents: bs.price_cents,
+        service_name: services?.find((s) => s.id === bs.service_id)?.name || "Servizio",
+      }));
+      setBookingServices(enriched);
+    } else {
+      setBookingServices([]);
+    }
+
+    setLoadingDetail(false);
+  }
+
+  async function updateStatus(bookingId: string, newStatus: string) {
+    const supabase = createClient();
+    await supabase
+      .from("bookings")
+      .update({ status: newStatus })
+      .eq("id", bookingId);
+
+    setBookings(
+      bookings.map((b) =>
+        b.id === bookingId ? { ...b, status: newStatus } : b
+      )
+    );
+  }
+
+  const filtered = bookings.filter((b) => {
     const matchSearch =
-      b.name.toLowerCase().includes(search.toLowerCase()) ||
-      b.code.toLowerCase().includes(search.toLowerCase()) ||
-      b.umbrella.toLowerCase().includes(search.toLowerCase());
+      !search ||
+      b.guest_name.toLowerCase().includes(search.toLowerCase()) ||
+      b.booking_code.toLowerCase().includes(search.toLowerCase()) ||
+      b.guest_email.toLowerCase().includes(search.toLowerCase());
     const matchStatus = !statusFilter || b.status === statusFilter;
-    return matchSearch && matchStatus;
+    const matchDateFrom = !dateFrom || b.end_date >= dateFrom;
+    const matchDateTo = !dateTo || b.start_date <= dateTo;
+    return matchSearch && matchStatus && matchDateFrom && matchDateTo;
   });
 
   const detail = selectedBooking
-    ? MOCK_BOOKINGS.find((b) => b.id === selectedBooking)
+    ? bookings.find((b) => b.id === selectedBooking)
     : null;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-brand-azure" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -84,7 +255,7 @@ export default function PrenotazioniPage() {
         <div>
           <h1 className="text-2xl font-bold">Prenotazioni</h1>
           <p className="text-muted-foreground">
-            Gestisci tutte le prenotazioni del tuo stabilimento.
+            {bookings.length} prenotazioni totali.
           </p>
         </div>
         <div className="flex gap-2">
@@ -100,25 +271,55 @@ export default function PrenotazioniPage() {
       </div>
 
       {/* Filtri */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Cerca per nome, codice o ombrellone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Cerca per nome, codice o email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-40"
+                placeholder="Dal"
+              />
+            </div>
+            <span className="text-muted-foreground">-</span>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-40"
+              min={dateFrom}
+              placeholder="Al"
+            />
+            {(dateFrom || dateTo) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setDateFrom(""); setDateTo(""); }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {Object.entries(STATUS_MAP).map(([key, { label }]) => (
             <Button
               key={key}
               variant={statusFilter === key ? "default" : "outline"}
               size="sm"
-              onClick={() =>
-                setStatusFilter(statusFilter === key ? null : key)
-              }
+              onClick={() => setStatusFilter(statusFilter === key ? null : key)}
             >
               {label}
             </Button>
@@ -140,29 +341,34 @@ export default function PrenotazioniPage() {
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted font-mono text-sm font-medium">
-                      {booking.umbrella.split(",")[0]}
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted font-mono text-xs font-medium">
+                      {booking.booking_code.slice(-4)}
                     </div>
                     <div>
-                      <p className="font-medium">{booking.name}</p>
+                      <p className="font-medium">{booking.guest_name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {booking.code} &middot; {booking.startDate === booking.endDate
-                          ? booking.startDate
-                          : `${booking.startDate} → ${booking.endDate}`}
+                        {booking.booking_code} &middot;{" "}
+                        {booking.start_date === booking.end_date
+                          ? booking.start_date
+                          : `${booking.start_date} → ${booking.end_date}`}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Badge variant={STATUS_MAP[booking.status].variant}>
-                      {STATUS_MAP[booking.status].label}
+                    <Badge variant={STATUS_MAP[booking.status]?.variant || "outline"}>
+                      {STATUS_MAP[booking.status]?.label || booking.status}
                     </Badge>
-                    <span className="font-semibold">{booking.total}&euro;</span>
+                    <span className="font-semibold">
+                      {(booking.total_cents / 100).toFixed(2)}&euro;
+                    </span>
                   </div>
                 </button>
               ))}
               {filtered.length === 0 && (
                 <div className="p-8 text-center text-muted-foreground">
-                  Nessuna prenotazione trovata.
+                  {bookings.length === 0
+                    ? "Nessuna prenotazione ancora. Le prenotazioni appariranno qui."
+                    : "Nessuna prenotazione trovata con questi filtri."}
                 </div>
               )}
             </div>
@@ -184,66 +390,160 @@ export default function PrenotazioniPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-sm text-muted-foreground">
-                  {detail.code}
+                  {detail.booking_code}
                 </span>
-                <Badge variant={STATUS_MAP[detail.status].variant}>
-                  {STATUS_MAP[detail.status].label}
+                <Badge variant={STATUS_MAP[detail.status]?.variant || "outline"}>
+                  {STATUS_MAP[detail.status]?.label || detail.status}
                 </Badge>
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm">
-                  <Umbrella className="h-4 w-4 text-muted-foreground" />
-                  <span>
-                    Ombrellone {detail.umbrella} &middot; {detail.sunbeds} lettini
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
                   <span>
-                    {detail.startDate === detail.endDate
-                      ? detail.startDate
-                      : `${detail.startDate} → ${detail.endDate}`}
+                    {detail.start_date === detail.end_date
+                      ? detail.start_date
+                      : `${detail.start_date} → ${detail.end_date}`}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span>{detail.phone}</span>
-                </div>
+                {detail.guest_phone && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <span>{detail.guest_phone}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 text-sm">
                   <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span>{detail.email}</span>
+                  <span>{detail.guest_email}</span>
                 </div>
               </div>
+
+              {/* Dettaglio ordine */}
+              {loadingDetail ? (
+                <div className="flex justify-center py-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  {bookingItems.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-1.5 text-sm font-medium">
+                        <Umbrella className="h-4 w-4 text-brand-azure" />
+                        Elementi prenotati
+                      </p>
+                      {bookingItems.map((item) => {
+                        const ItemIcon = ELEMENT_ICONS[item.element_type] || Umbrella;
+                        const typeLabel = ELEMENT_LABELS[item.element_type] || "Ombrellone";
+                        const capLabel = ELEMENT_CAP_LABELS[item.element_type] || "lettini";
+                        return (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm"
+                        >
+                          <div className="flex items-start gap-2">
+                            <ItemIcon className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <span className="font-medium">{typeLabel} {item.element_label}</span>
+                              <span className="ml-1.5 text-muted-foreground">
+                                · {item.row_label} · {item.zone_name}
+                              </span>
+                              <p className="text-xs text-muted-foreground">
+                                {item.sunbeds_count} {capLabel}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="font-medium">
+                            {(item.price_cents / 100).toFixed(2)}&euro;
+                          </span>
+                        </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {bookingServices.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-1.5 text-sm font-medium">
+                        <Package className="h-4 w-4 text-brand-azure" />
+                        Servizi extra
+                      </p>
+                      {bookingServices.map((bs) => (
+                        <div
+                          key={bs.id}
+                          className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm"
+                        >
+                          <span>{bs.service_name} ×{bs.quantity}</span>
+                          <span className="font-medium">
+                            {(bs.price_cents / 100).toFixed(2)}&euro;
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {bookingItems.length === 0 && bookingServices.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Nessun dettaglio disponibile per questa prenotazione.
+                    </p>
+                  )}
+                </>
+              )}
 
               <div className="rounded-lg bg-muted p-3">
                 <div className="flex items-center justify-between text-lg font-bold">
                   <span>Totale</span>
-                  <span>{detail.total}&euro;</span>
+                  <span>{(detail.total_cents / 100).toFixed(2)}&euro;</span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {detail.paidAt
-                    ? `Pagato il ${detail.paidAt.split("T")[0]}`
-                    : "Non ancora pagato"}
-                </p>
               </div>
 
               <div className="space-y-2">
                 {detail.status === "confirmed" && (
-                  <Button variant="brand" className="w-full">
-                    <QrCode className="h-4 w-4" />
-                    Check-in
-                  </Button>
+                  <>
+                    <Button
+                      variant="brand"
+                      className="w-full"
+                      onClick={() => updateStatus(detail.id, "checked_in")}
+                    >
+                      <UserCheck className="h-4 w-4" />
+                      Conferma in presenza
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => updateStatus(detail.id, "checked_in")}
+                    >
+                      <QrCode className="h-4 w-4" />
+                      Check-in tramite QR
+                    </Button>
+                  </>
                 )}
                 {detail.status === "pending" && (
-                  <Button variant="brand" className="w-full">
+                  <Button
+                    variant="brand"
+                    className="w-full"
+                    onClick={() => updateStatus(detail.id, "confirmed")}
+                  >
                     Conferma prenotazione
                   </Button>
                 )}
-                <Button variant="outline" className="w-full">
-                  <Eye className="h-4 w-4" />
-                  Mostra QR Code
-                </Button>
+                {detail.status === "checked_in" && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => updateStatus(detail.id, "completed")}
+                  >
+                    Segna completato
+                  </Button>
+                )}
+                {(detail.status === "pending" || detail.status === "confirmed") && (
+                  <Button
+                    variant="outline"
+                    className="w-full text-destructive"
+                    onClick={() => updateStatus(detail.id, "cancelled")}
+                  >
+                    Cancella prenotazione
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -9,36 +10,9 @@ import {
   Umbrella,
   ArrowRight,
   Star,
+  UtensilsCrossed,
 } from "lucide-react";
-
-// Dati mock per demo — in produzione verranno dal database
-const MOCK_ESTABLISHMENT = {
-  name: "Lido Azzurro",
-  slug: "lido-azzurro",
-  description:
-    "Il tuo angolo di paradiso sulla costa adriatica. Ombrelloni, lettini, bar e ristorante direttamente sulla spiaggia.",
-  address: "Lungomare Cristoforo Colombo, 45",
-  city: "Rimini",
-  province: "RN",
-  phone: "+39 0541 123456",
-  email: "info@lidoazzurro.it",
-  check_in_time: "08:00",
-  check_out_time: "19:00",
-  primary_color: "#00BFFF",
-  cover_image_url: null,
-  services: [
-    { name: "Asciugamano mare", price: 15, icon: "towel" },
-    { name: "Doccia calda", price: 2, icon: "shower" },
-    { name: "Wifi gratuito", price: 0, icon: "wifi" },
-    { name: "Parcheggio", price: 5, icon: "parking" },
-  ],
-  rows: [
-    { label: "Prima fila", price_from: 45 },
-    { label: "Seconda fila", price_from: 35 },
-    { label: "Terza fila", price_from: 25 },
-    { label: "Quarta fila", price_from: 20 },
-  ],
-};
+import { createClient } from "@/lib/supabase/server";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -46,18 +20,118 @@ interface PageProps {
 
 export default async function LidoPage({ params }: PageProps) {
   const { slug } = await params;
-  // TODO: fetch establishment from Supabase by slug
-  const establishment = MOCK_ESTABLISHMENT;
+  const supabase = await createClient();
+
+  // Fetch establishment
+  const { data: establishment } = await supabase
+    .from("establishments")
+    .select("*")
+    .eq("slug", slug)
+    .eq("is_active", true)
+    .single();
+
+  if (!establishment) {
+    notFound();
+  }
+
+  // Fetch additional services
+  const { data: services } = await supabase
+    .from("additional_services")
+    .select("*")
+    .eq("establishment_id", establishment.id)
+    .eq("is_active", true)
+    .order("sort_order");
+
+  // Fetch rows for all active maps
+  const { data: mapsData } = await supabase
+    .from("beach_maps")
+    .select("id, name")
+    .eq("establishment_id", establishment.id)
+    .eq("is_active", true)
+    .order("created_at");
+
+  let rows: { label: string; count: number; zoneName: string }[] = [];
+  if (mapsData && mapsData.length > 0) {
+    const mapIds = mapsData.map((m) => m.id);
+    const { data: mapRows } = await supabase
+      .from("map_rows")
+      .select("id, label, row_number, beach_map_id")
+      .in("beach_map_id", mapIds)
+      .order("row_number");
+
+    if (mapRows) {
+      for (const row of mapRows) {
+        const { count } = await supabase
+          .from("map_elements")
+          .select("*", { count: "exact", head: true })
+          .eq("map_row_id", row.id)
+          .eq("is_active", true);
+
+        const mapName = mapsData.find((m) => m.id === row.beach_map_id)?.name || "";
+        rows.push({ label: row.label, count: count || 0, zoneName: mapName });
+      }
+    }
+  }
+
+  // Structured data for Google
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BeachResort",
+    name: establishment.name,
+    description: establishment.description || `Stabilimento balneare ${establishment.name}`,
+    ...(establishment.address && {
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: establishment.address,
+        addressLocality: establishment.city || "",
+        addressRegion: establishment.province || "",
+        postalCode: establishment.cap || "",
+        addressCountry: "IT",
+      },
+    }),
+    ...(establishment.phone && { telephone: establishment.phone }),
+    ...(establishment.email && { email: establishment.email }),
+    ...(establishment.website && { url: establishment.website }),
+    ...(establishment.latitude && establishment.longitude && {
+      geo: {
+        "@type": "GeoCoordinates",
+        latitude: establishment.latitude,
+        longitude: establishment.longitude,
+      },
+    }),
+    ...(establishment.check_in_time && establishment.check_out_time && {
+      openingHours: `Mo-Su ${establishment.check_in_time}-${establishment.check_out_time}`,
+    }),
+    potentialAction: {
+      "@type": "ReserveAction",
+      target: {
+        "@type": "EntryPoint",
+        urlTemplate: `https://lidofacile.it/lido/${slug}/prenota`,
+        actionPlatform: [
+          "http://schema.org/DesktopWebPlatform",
+          "http://schema.org/MobileWebPlatform",
+        ],
+      },
+      result: {
+        "@type": "Reservation",
+        name: `Prenotazione ${establishment.name}`,
+      },
+    },
+  };
 
   return (
     <div className="min-h-screen bg-background">
+      {/* JSON-LD Structured Data for Google */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       {/* Header stabilimento */}
       <header className="relative bg-brand-navy">
-        {/* Cover image o gradiente */}
         <div className="absolute inset-0 bg-gradient-to-br from-brand-navy via-brand-navy-light to-brand-blue/30" />
 
         <div className="relative mx-auto max-w-5xl px-4 pb-12 pt-8 sm:px-6">
-          {/* Nav */}
           <nav className="mb-8 flex items-center justify-between">
             <h2 className="text-lg font-bold text-white">
               {establishment.name}
@@ -70,44 +144,60 @@ export default async function LidoPage({ params }: PageProps) {
             </Button>
           </nav>
 
-          {/* Hero stabilimento */}
           <div className="max-w-2xl">
-            <div className="mb-4 flex items-center gap-2 text-sm text-white/60">
-              <MapPin className="h-4 w-4" />
-              <span>
-                {establishment.address}, {establishment.city} (
-                {establishment.province})
-              </span>
-            </div>
+            {(establishment.address || establishment.city) && (
+              <div className="mb-4 flex items-center gap-2 text-sm text-white/60">
+                <MapPin className="h-4 w-4" />
+                <span>
+                  {establishment.address && `${establishment.address}, `}
+                  {establishment.city}
+                  {establishment.province && ` (${establishment.province})`}
+                </span>
+              </div>
+            )}
 
             <h1 className="text-3xl font-bold text-white sm:text-4xl">
               {establishment.name}
             </h1>
 
-            <p className="mt-4 text-lg text-white/70">
-              {establishment.description}
-            </p>
+            {establishment.description && (
+              <p className="mt-4 text-lg text-white/70">
+                {establishment.description}
+              </p>
+            )}
 
             <div className="mt-6 flex flex-wrap gap-4 text-sm text-white/50">
-              <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4" />
-                {establishment.check_in_time} - {establishment.check_out_time}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Phone className="h-4 w-4" />
-                {establishment.phone}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Mail className="h-4 w-4" />
-                {establishment.email}
-              </span>
+              {establishment.check_in_time && (
+                <span className="flex items-center gap-1.5">
+                  <Clock className="h-4 w-4" />
+                  {establishment.check_in_time} - {establishment.check_out_time}
+                </span>
+              )}
+              {establishment.phone && (
+                <span className="flex items-center gap-1.5">
+                  <Phone className="h-4 w-4" />
+                  {establishment.phone}
+                </span>
+              )}
+              {establishment.email && (
+                <span className="flex items-center gap-1.5">
+                  <Mail className="h-4 w-4" />
+                  {establishment.email}
+                </span>
+              )}
             </div>
 
-            <div className="mt-8">
+            <div className="mt-8 flex flex-wrap gap-3">
               <Button variant="brand" size="xl" asChild>
                 <Link href={`/lido/${slug}/prenota`}>
                   Scegli il tuo ombrellone
                   <Umbrella className="h-5 w-5" />
+                </Link>
+              </Button>
+              <Button size="xl" className="border border-white/30 bg-white/10 text-white backdrop-blur-sm hover:bg-white/20" asChild>
+                <Link href={`/lido/${slug}/menu`}>
+                  <UtensilsCrossed className="h-5 w-5" />
+                  Ordina dal bar
                 </Link>
               </Button>
             </div>
@@ -115,69 +205,72 @@ export default async function LidoPage({ params }: PageProps) {
         </div>
       </header>
 
-      {/* Prezzi per fila */}
-      <section className="py-12">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <h2 className="mb-6 text-2xl font-bold">Tariffe giornaliere</h2>
-          <p className="mb-8 text-muted-foreground">
-            Ombrellone + 2 lettini. Prezzi a partire da:
-          </p>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {establishment.rows.map((row, i) => (
-              <Card
-                key={row.label}
-                className={`transition-all hover:shadow-md ${i === 0 ? "border-brand-azure/30 ring-1 ring-brand-azure/20" : ""}`}
-              >
-                <CardContent className="p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        {row.label}
-                      </p>
-                      <p className="mt-1 text-2xl font-bold">
-                        {row.price_from}&euro;
-                        <span className="text-sm font-normal text-muted-foreground">
-                          /giorno
+      {/* Mappa info */}
+      {rows.length > 0 && (
+        <section className="py-12">
+          <div className="mx-auto max-w-5xl px-4 sm:px-6">
+            <h2 className="mb-6 text-2xl font-bold">Il nostro stabilimento</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {rows.map((row, i) => (
+                <Card
+                  key={row.label}
+                  className={`transition-all hover:shadow-md ${i === 0 ? "border-brand-azure/30 ring-1 ring-brand-azure/20" : ""}`}
+                >
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">{row.label}</p>
+                        <p className="mt-1 text-2xl font-bold">
+                          {row.count}
+                          <span className="text-sm font-normal text-muted-foreground">
+                            {" "}ombrelloni
+                          </span>
+                        </p>
+                      </div>
+                      {i === 0 && (
+                        <span className="flex items-center gap-1 rounded-full bg-brand-azure/10 px-2 py-1 text-xs font-medium text-brand-azure">
+                          <Star className="h-3 w-3" /> Vista mare
                         </span>
-                      </p>
+                      )}
                     </div>
-                    {i === 0 && (
-                      <span className="flex items-center gap-1 rounded-full bg-brand-azure/10 px-2 py-1 text-xs font-medium text-brand-azure">
-                        <Star className="h-3 w-3" /> Vista mare
-                      </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Servizi */}
-      <section className="border-t bg-muted/50 py-12">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <h2 className="mb-6 text-2xl font-bold">Servizi disponibili</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {establishment.services.map((service) => (
-              <div
-                key={service.name}
-                className="flex items-center justify-between rounded-lg border bg-card p-4"
-              >
-                <span className="font-medium">{service.name}</span>
-                <span className="text-lg font-semibold">
-                  {service.price === 0 ? (
-                    <span className="text-available">Gratis</span>
-                  ) : (
-                    <>{service.price}&euro;</>
-                  )}
-                </span>
-              </div>
-            ))}
+      {services && services.length > 0 && (
+        <section className="border-t bg-muted/50 py-12">
+          <div className="mx-auto max-w-5xl px-4 sm:px-6">
+            <h2 className="mb-6 text-2xl font-bold">Servizi disponibili</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {services.map((service) => (
+                <div
+                  key={service.id}
+                  className="flex items-center justify-between rounded-lg border bg-card p-4"
+                >
+                  <div>
+                    <span className="font-medium">{service.name}</span>
+                    {service.description && (
+                      <p className="text-sm text-muted-foreground">{service.description}</p>
+                    )}
+                  </div>
+                  <span className="text-lg font-semibold">
+                    {service.price_cents === 0 ? (
+                      <span className="text-available">Gratis</span>
+                    ) : (
+                      <>{(service.price_cents / 100).toFixed(2)}&euro;</>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* CTA */}
       <section className="py-12">
@@ -199,8 +292,9 @@ export default async function LidoPage({ params }: PageProps) {
       {/* Footer mini */}
       <footer className="border-t py-6 text-center text-sm text-muted-foreground">
         <p>
-          {establishment.name} &middot; {establishment.address},{" "}
-          {establishment.city}
+          {establishment.name}
+          {establishment.address && ` · ${establishment.address}`}
+          {establishment.city && `, ${establishment.city}`}
         </p>
         <p className="mt-1">
           Gestito con{" "}

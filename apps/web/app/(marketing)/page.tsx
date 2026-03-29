@@ -21,55 +21,108 @@ export default function HomePage() {
   return (
     <>
       {/* ===== HERO SECTION ===== */}
-      <section className="relative overflow-hidden bg-brand-navy pt-16">
-        {/* Onde animate di sfondo */}
+      <section className="relative overflow-hidden pt-16" style={{ background: "linear-gradient(180deg, #0c2d48 0%, #143d5e 20%, #1a6085 38%, #2e94b9 48%, #6dc0d9 56%, #b4dce8 62%, #e8d5b7 70%, #dfc09a 80%, #d4b08a 90%, #c9a06e 100%)" }}>
+        {/* Texture sabbia nella parte bassa */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.12]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")`,
+            backgroundSize: "200px 200px",
+          }}
+        />
+
+        {/* Granelli di sabbia nella parte bassa */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <svg
-            className="absolute bottom-0 w-full opacity-10"
-            viewBox="0 0 1440 320"
-            fill="none"
-          >
-            <path
-              className="animate-wave"
-              d="M0,160L48,176C96,192,192,224,288,213.3C384,203,480,149,576,149.3C672,149,768,203,864,208C960,213,1056,171,1152,154.7C1248,139,1344,149,1392,154.7L1440,160L1440,320L0,320Z"
-              fill="url(#heroGrad)"
-            />
-            <path
-              className="animate-wave-slow"
-              d="M0,224L48,213.3C96,203,192,181,288,186.7C384,192,480,224,576,229.3C672,235,768,213,864,186.7C960,160,1056,128,1152,128C1248,128,1344,160,1392,176L1440,192L1440,320L0,320Z"
-              fill="url(#heroGrad2)"
-              opacity="0.5"
-            />
+          <div
+            className="absolute bottom-0 left-0 right-0 h-[35%] opacity-20"
+            style={{
+              backgroundImage: "radial-gradient(circle, #c4956a 1px, transparent 1px), radial-gradient(circle, #b8845a 0.5px, transparent 0.5px)",
+              backgroundSize: "24px 24px, 40px 40px",
+              backgroundPosition: "0 0, 12px 12px",
+            }}
+          />
+        </div>
+
+        {/* Onde del mare animate — posizionate nella zona di transizione mare/sabbia */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-[22%] h-[200px]">
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 1440 200" preserveAspectRatio="none">
             <defs>
-              <linearGradient id="heroGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#00F0B5" />
-                <stop offset="100%" stopColor="#2563EB" />
+              <linearGradient id="seaDeep" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#2980b9" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="#5dade2" stopOpacity="0.1" />
               </linearGradient>
-              <linearGradient id="heroGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#00BFFF" />
-                <stop offset="100%" stopColor="#00F0B5" />
+              <linearGradient id="seaMid" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#5dade2" stopOpacity="0.35" />
+                <stop offset="100%" stopColor="#85c1e9" stopOpacity="0.05" />
+              </linearGradient>
+              <linearGradient id="seaFoam" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#aed6f1" stopOpacity="0.6" />
+                <stop offset="50%" stopColor="#d4effc" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="foamWhite" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#ffffff" stopOpacity="0.5" />
+                <stop offset="50%" stopColor="#ffffff" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="#ffffff" stopOpacity="0.5" />
               </linearGradient>
             </defs>
+
+            {/* Onda profonda */}
+            <path
+              className="animate-wave-deep"
+              d="M0,40 C120,20 240,60 360,45 C480,30 600,65 720,50 C840,35 960,70 1080,55 C1200,40 1320,25 1440,45 L1440,200 L0,200 Z"
+              fill="url(#seaDeep)"
+            />
+            {/* Onda media */}
+            <path
+              className="animate-wave-mid"
+              d="M0,70 C100,55 200,85 360,72 C520,58 600,90 720,78 C840,65 960,95 1080,82 C1200,68 1340,60 1440,75 L1440,200 L0,200 Z"
+              fill="url(#seaMid)"
+            />
+            {/* Onda schiuma */}
+            <path
+              className="animate-wave-foam"
+              d="M0,95 C80,88 160,105 320,97 C480,89 560,108 720,100 C880,92 960,110 1080,102 C1200,94 1360,86 1440,97 L1440,130 L0,130 Z"
+              fill="url(#seaFoam)"
+            />
+            {/* Cresta bianca schiuma */}
+            <path
+              className="animate-wave-crest"
+              d="M0,97 C60,93 120,101 240,97 C360,93 420,103 540,99 C660,95 720,104 840,100 C960,96 1020,103 1140,99 C1260,95 1380,92 1440,97 L1440,102 L0,102 Z"
+              fill="url(#foamWhite)"
+            />
           </svg>
         </div>
 
-        <div className="relative mx-auto max-w-7xl px-4 pb-24 pt-20 sm:px-6 sm:pb-32 sm:pt-28 lg:px-8">
+        {/* Riflessi luce sull'acqua (parte alta) */}
+        <div className="pointer-events-none absolute inset-x-0 top-[15%] h-[30%] opacity-[0.04]">
+          <div
+            className="animate-shimmer h-full w-full"
+            style={{
+              backgroundImage: "radial-gradient(ellipse 100px 2px, white, transparent), radial-gradient(ellipse 70px 1.5px, white, transparent), radial-gradient(ellipse 120px 3px, white, transparent)",
+              backgroundSize: "220px 45px, 320px 65px, 270px 55px",
+              backgroundPosition: "0 0, 50px 20px, 100px 10px",
+            }}
+          />
+        </div>
+
+        <div className="relative mx-auto max-w-7xl px-4 pb-24 pt-24 sm:px-6 sm:pb-32 sm:pt-32 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             {/* Badge */}
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-brand-azure/30 bg-brand-azure/10 px-4 py-2 text-sm text-brand-azure">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm">
               <Zap className="h-4 w-4" />
               Pronto in 10 minuti — Zero commissioni
             </div>
 
             <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">
-              La tua spiaggia,{" "}
-              <span className="text-brand-gradient">gestita facile</span>
+              Il tuo stabilimento,{" "}
+              <span className="text-brand-gradient">gestito facile.</span>
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-lg text-white/70 sm:text-xl">
               Prenotazioni online, mappa interattiva degli ombrelloni, pagamenti
               integrati e assistente AI. Tutto in un unico gestionale pensato
-              per chi lavora in spiaggia.
+              per il tuo stabilimento.
             </p>
 
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -80,12 +133,11 @@ export default function HomePage() {
                 </Link>
               </Button>
               <Button
-                variant="outline"
                 size="lg"
-                className="border-white/20 text-white hover:bg-white/10"
+                className="border border-white/20 bg-white/10 text-white backdrop-blur-sm hover:bg-white/20"
                 asChild
               >
-                <Link href="#demo">Guarda la demo</Link>
+                <Link href="/lido/lido-azzurro">Guarda la demo</Link>
               </Button>
             </div>
 
@@ -105,7 +157,7 @@ export default function HomePage() {
                   dashboard.lidofacile.it/lido-azzurro/mappa
                 </span>
               </div>
-              {/* Anteprima mappa spiaggia */}
+              {/* Anteprima mappa stabilimento */}
               <div className="relative p-6">
                 {/* Mare */}
                 <div className="mb-4 flex h-16 items-center justify-center rounded-lg bg-gradient-to-r from-brand-cyan/20 via-brand-azure/20 to-brand-blue/20">
@@ -250,7 +302,7 @@ export default function HomePage() {
                 icon: Umbrella,
                 title: "Mappa interattiva",
                 description:
-                  "Disegna la mappa della tua spiaggia con drag & drop. I clienti scelgono il posto come in aereo.",
+                  "Disegna la mappa del tuo stabilimento con drag & drop. Spiaggia, giardino, piscina — i clienti scelgono il posto come in aereo.",
               },
               {
                 icon: CreditCard,
@@ -339,7 +391,7 @@ export default function HomePage() {
             {[
               {
                 step: "1",
-                title: "Disegna la tua spiaggia",
+                title: "Disegna il tuo stabilimento",
                 description:
                   "Usa il nostro editor visuale o scegli un template. Trascina ombrelloni, lettini e servizi sulla mappa.",
               },
@@ -397,11 +449,11 @@ export default function HomePage() {
                   Piano Annuale
                 </h3>
                 <div className="mt-4 flex items-baseline gap-1">
-                  <span className="text-5xl font-bold text-white">697</span>
+                  <span className="text-5xl font-bold text-white">597</span>
                   <span className="text-xl text-white/50">&euro;/anno</span>
                 </div>
                 <p className="mt-2 text-sm text-white/40">
-                  Equivale a meno di 1,91 &euro; al giorno
+                  Equivale a meno di 1,64 &euro; al giorno
                 </p>
 
                 <div className="mt-8 space-y-4">
@@ -435,7 +487,7 @@ export default function HomePage() {
                 </Button>
 
                 <p className="mt-4 text-center text-sm text-white/40">
-                  14 giorni gratis, poi 697 &euro;/anno. Disdici quando vuoi.
+                  14 giorni gratis, poi 597 &euro;/anno. Disdici quando vuoi.
                 </p>
               </CardContent>
             </Card>

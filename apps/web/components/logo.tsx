@@ -87,7 +87,7 @@ export function Logo({ className, size = "md", variant = "full" }: LogoProps) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <WavesIcon />
-      <span className={cn("font-semibold tracking-tight", s.text)}>
+      <span className={cn("font-semibold tracking-tight", s.text, className)}>
         lidofacile<span className="text-brand-azure">.it</span>
       </span>
     </span>

@@ -1,17 +1,43 @@
 import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 
-// Redirect alla dashboard del primo stabilimento dell'utente
-// Per ora redirect a una pagina placeholder
-export default function DashboardIndex() {
-  // TODO: fetch stabilimenti dell'utente e redirect al primo
-  return (
-    <div className="flex min-h-[60vh] items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold">Benvenuto su LidoFacile</h1>
-        <p className="mt-2 text-muted-foreground">
-          Seleziona il tuo stabilimento per iniziare.
-        </p>
-      </div>
-    </div>
-  );
+export default async function DashboardIndex() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/auth/login");
+  }
+
+  // Cerca stabilimento di proprietà
+  const { data: owned } = await supabase
+    .from("establishments")
+    .select("slug")
+    .eq("owner_id", user.id)
+    .limit(1)
+    .single();
+
+  if (owned?.slug) {
+    redirect(`/dashboard/${owned.slug}`);
+  }
+
+  // Cerca come membro
+  const { data: membership } = await supabase
+    .from("establishment_members")
+    .select("establishments(slug)")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .limit(1)
+    .single();
+
+  if (membership?.establishments) {
+    const est = membership.establishments as unknown as { slug: string };
+    redirect(`/dashboard/${est.slug}`);
+  }
+
+  // Nessuno stabilimento — pagina creazione
+  redirect("/dashboard/nuovo");
 }

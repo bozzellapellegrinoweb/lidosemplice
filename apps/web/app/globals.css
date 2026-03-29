@@ -119,17 +119,62 @@ body {
   background-clip: text;
 }
 
-/* Animazione onde (per landing page e header) */
+/* Animazione onde mare (landing page hero) */
+@keyframes wave-deep {
+  0% { transform: translateX(0) scaleY(1); }
+  50% { transform: translateX(-30px) scaleY(1.05); }
+  100% { transform: translateX(0) scaleY(1); }
+}
+@keyframes wave-mid {
+  0% { transform: translateX(0) scaleY(1); }
+  33% { transform: translateX(20px) scaleY(0.97); }
+  66% { transform: translateX(-15px) scaleY(1.03); }
+  100% { transform: translateX(0) scaleY(1); }
+}
+@keyframes wave-foam {
+  0% { transform: translateX(0); }
+  25% { transform: translateX(15px); }
+  50% { transform: translateX(-10px); }
+  75% { transform: translateX(8px); }
+  100% { transform: translateX(0); }
+}
+@keyframes wave-crest {
+  0% { transform: translateX(0) scaleX(1); opacity: 0.7; }
+  30% { transform: translateX(12px) scaleX(1.02); opacity: 1; }
+  60% { transform: translateX(-8px) scaleX(0.98); opacity: 0.5; }
+  100% { transform: translateX(0) scaleX(1); opacity: 0.7; }
+}
+@keyframes shimmer {
+  0% { transform: translateX(0); opacity: 0.3; }
+  50% { transform: translateX(40px); opacity: 0.6; }
+  100% { transform: translateX(0); opacity: 0.3; }
+}
+
+.animate-wave-deep {
+  animation: wave-deep 6s ease-in-out infinite;
+}
+.animate-wave-mid {
+  animation: wave-mid 4.5s ease-in-out infinite;
+}
+.animate-wave-foam {
+  animation: wave-foam 3s ease-in-out infinite;
+}
+.animate-wave-crest {
+  animation: wave-crest 2.5s ease-in-out infinite;
+}
+.animate-shimmer {
+  animation: shimmer 5s ease-in-out infinite;
+}
+
+/* Legacy wave (usato in altre pagine) */
 @keyframes wave {
   0% { transform: translateX(0); }
   50% { transform: translateX(-25px); }
   100% { transform: translateX(0); }
 }
-
 .animate-wave {
   animation: wave 3s ease-in-out infinite;
 }
-
 .animate-wave-slow {
   animation: wave 4s ease-in-out infinite;
 }
