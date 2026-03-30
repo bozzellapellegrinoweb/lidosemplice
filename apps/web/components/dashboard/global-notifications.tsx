@@ -11,8 +11,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import Link from "next/link";
-import { X, ShoppingBag, Umbrella, Bell, BellOff } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, Umbrella, Bell, BellOff, Calendar } from "lucide-react";
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -77,7 +77,15 @@ function startAlertLoop(type: "bar" | "booking"): () => void {
 interface Toast {
   id: string;
   type: "bar" | "booking";
-  message: string;
+  // bar
+  umbrella_label?: string;
+  guest_name?: string;
+  total_cents?: number;
+  notes?: string;
+  // booking
+  start_date?: string;
+  end_date?: string;
+  booking_code?: string;
   href: string;
   stopSound: () => void;
 }
@@ -88,6 +96,7 @@ export function GlobalNotifications({ establishmentId, slug }: {
   establishmentId: string;
   slug: string;
 }) {
+  const router = useRouter();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [soundOn, setSoundOn] = useState(true);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -131,8 +140,8 @@ export function GlobalNotifications({ establishmentId, slug }: {
     if (!mountedRef.current) return;
     const id = crypto.randomUUID();
     const stopSound = soundOnRef.current ? startAlertLoop(toast.type) : () => {};
-    setToasts((prev) => [...prev.slice(-3), { ...toast, id, stopSound }]);
-    // Nessun auto-dismiss: il toast resta finché l'utente non lo chiude
+    // Mostra solo 1 modal alla volta — se c'è già qualcosa, accoda
+    setToasts((prev) => [...prev, { ...toast, id, stopSound }]);
   }, []);
 
   // Ferma tutti i suoni quando si smonta (es. logout)
@@ -163,7 +172,10 @@ export function GlobalNotifications({ establishmentId, slug }: {
       ) {
         addToast({
           type: "bar",
-          message: `Ordine bar — ${newest.umbrella_label || newest.guest_name || "nuovo"}`,
+          umbrella_label: newest.umbrella_label || "?",
+          guest_name: newest.guest_name || "Cliente",
+          total_cents: newest.total_cents,
+          notes: newest.notes,
           href: `/dashboard/${slug}/ordini-bar`,
         });
       }
@@ -192,7 +204,11 @@ export function GlobalNotifications({ establishmentId, slug }: {
       ) {
         addToast({
           type: "booking",
-          message: `Nuova prenotazione — ${newest.guest_name || "Cliente"}`,
+          guest_name: newest.guest_name || "Cliente",
+          start_date: newest.start_date,
+          end_date: newest.end_date,
+          total_cents: newest.total_cents,
+          booking_code: newest.booking_code,
           href: `/dashboard/${slug}/prenotazioni`,
         });
       }
@@ -250,43 +266,101 @@ export function GlobalNotifications({ establishmentId, slug }: {
     if (next) beepOnce("booking");
   }
 
-  return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2">
-      {toasts.map((toast) => (
-        <Link
-          key={toast.id}
-          href={toast.href}
-          onClick={() => removeToast(toast.id)}
-          className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-xl transition hover:opacity-90 w-72"
-        >
-          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-            toast.type === "bar" ? "bg-orange-500/15 text-orange-500" : "bg-blue-500/15 text-blue-500"
-          }`}>
-            {toast.type === "bar" ? <ShoppingBag className="h-4 w-4" /> : <Umbrella className="h-4 w-4" />}
-          </span>
-          <span className="flex-1 text-sm font-medium text-foreground">{toast.message}</span>
-          <button
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeToast(toast.id); }}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </Link>
-      ))}
+  // Mostra solo il primo toast come modal — gli altri sono in coda
+  const current = toasts[0] ?? null;
 
-      <button
-        onClick={toggleSound}
-        title={soundOn ? "Suono attivo — clicca per disattivare" : "Suono disattivato — clicca per attivare"}
-        className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg border transition-all ${
-          soundOn
-            ? audioUnlocked
-              ? "bg-green-500 border-green-400 text-white"
-              : "bg-yellow-500 border-yellow-400 text-white"
-            : "bg-muted border-border text-muted-foreground"
-        }`}
-      >
-        {soundOn ? <Bell className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
-      </button>
-    </div>
+  return (
+    <>
+      {/* Modal centrato con overlay blur */}
+      {current && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-2xl dark:bg-zinc-900">
+            {current.type === "bar" ? (
+              <>
+                <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-orange-500/15">
+                  <AlertCircle className="h-10 w-10 animate-pulse text-orange-500" />
+                </div>
+                <h2 className="mb-1 text-2xl font-black tracking-tight">NUOVO ORDINE BAR!</h2>
+                <div className="mb-6 space-y-2">
+                  <div className="flex items-center justify-center gap-2 text-xl font-bold">
+                    <Umbrella className="h-5 w-5 text-orange-500" />
+                    Ombrellone {current.umbrella_label}
+                  </div>
+                  <p className="text-lg text-muted-foreground">{current.guest_name}</p>
+                  {current.notes && (
+                    <p className="rounded-lg bg-muted px-3 py-1.5 text-sm italic">Nota: {current.notes}</p>
+                  )}
+                  {current.total_cents != null && (
+                    <p className="text-3xl font-black text-orange-500">
+                      {(current.total_cents / 100).toFixed(2)}€
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => { removeToast(current.id); router.push(current.href); }}
+                  className="w-full rounded-xl bg-orange-500 py-4 text-lg font-bold text-white transition hover:bg-orange-600 active:scale-95"
+                >
+                  Ho visto — Preparo!
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-blue-500/15">
+                  <AlertCircle className="h-10 w-10 animate-pulse text-blue-500" />
+                </div>
+                <h2 className="mb-1 text-2xl font-black tracking-tight">NUOVA PRENOTAZIONE!</h2>
+                <div className="mb-6 space-y-2">
+                  <p className="text-xl font-bold">{current.guest_name}</p>
+                  {current.start_date && (
+                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                      <Calendar className="h-4 w-4" />
+                      <span>
+                        {current.start_date === current.end_date
+                          ? current.start_date
+                          : `${current.start_date} → ${current.end_date}`}
+                      </span>
+                    </div>
+                  )}
+                  {current.booking_code && (
+                    <p className="font-mono text-sm text-muted-foreground">{current.booking_code}</p>
+                  )}
+                  {current.total_cents != null && (
+                    <p className="text-3xl font-black text-blue-500">
+                      {(current.total_cents / 100).toFixed(2)}€
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => { removeToast(current.id); router.push(current.href); }}
+                  className="w-full rounded-xl bg-blue-500 py-4 text-lg font-bold text-white transition hover:bg-blue-600 active:scale-95"
+                >
+                  Ho visto!
+                </button>
+              </>
+            )}
+            {toasts.length > 1 && (
+              <p className="mt-3 text-xs text-muted-foreground">+{toasts.length - 1} altri in attesa</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Campanella fissa in basso a destra */}
+      <div className="fixed bottom-4 right-4 z-[9998]">
+        <button
+          onClick={toggleSound}
+          title={soundOn ? "Suono attivo" : "Suono disattivato"}
+          className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg border transition-all ${
+            soundOn
+              ? audioUnlocked
+                ? "bg-green-500 border-green-400 text-white"
+                : "bg-yellow-500 border-yellow-400 text-white"
+              : "bg-muted border-border text-muted-foreground"
+          }`}
+        >
+          {soundOn ? <Bell className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
+        </button>
+      </div>
+    </>
   );
 }
