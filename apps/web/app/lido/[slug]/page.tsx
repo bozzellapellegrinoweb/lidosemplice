@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { AIChat } from "@/components/chat/ai-chat";
 import {
   MapPin,
   Clock,
@@ -306,6 +307,9 @@ export default async function LidoPage({ params }: PageProps) {
           </Link>
         </p>
       </footer>
+
+      {/* Chat AI flotante per clienti */}
+      <AIChat establishmentId={establishment.id} userRole="client" />
     </div>
   );
 }
