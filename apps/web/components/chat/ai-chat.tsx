@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { MessageCircle, Send, Loader2, X, Bot, User, ArrowLeft } from "lucide-react";
+import { MessageCircle, Send, X, Bot, User, ArrowLeft } from "lucide-react";
 
 interface Message {
   role: "user" | "assistant";
@@ -218,13 +217,13 @@ export function AIChat({ establishmentId, userRole, establishmentName }: AIChatP
               disabled={loading}
               className="flex-1 rounded-full border bg-zinc-50 dark:bg-zinc-900 px-4 py-2.5 text-sm outline-none focus:border-[#00BFFF] focus:ring-2 focus:ring-[#00BFFF]/20 disabled:opacity-50 transition"
             />
-            <Button
+            <button
               type="submit"
               disabled={loading || !input.trim()}
-              className="h-10 w-10 shrink-0 rounded-full bg-[#0B1829] p-0 text-white hover:bg-[#0B1829]/80 disabled:opacity-40"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0B1829] text-white transition hover:bg-[#0B1829]/80 disabled:opacity-40 active:scale-95"
             >
               <Send className="h-4 w-4" />
-            </Button>
+            </button>
           </div>
         </form>
       </div>
