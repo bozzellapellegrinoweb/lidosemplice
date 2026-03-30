@@ -191,7 +191,7 @@ export function GlobalNotifications({ establishmentId, slug }: {
     const supabase = createClient();
     const { data } = await supabase
       .from("bookings")
-      .select("guest_name, booking_code, created_at")
+      .select("guest_name, start_date, end_date, total_cents, booking_code, created_at")
       .eq("establishment_id", id)
       .order("created_at", { ascending: false })
       .limit(1);
