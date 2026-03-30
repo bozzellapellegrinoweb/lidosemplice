@@ -276,19 +276,26 @@ async function runCreateBooking(input: Record<string, unknown>, establishmentId:
       duration: "full_day",
       status: "confirmed",
       payment_method: "onsite",
-      subtotal: totalPrice,
-      total: totalPrice,
+      total_cents: Math.round(totalPrice * 100),
     })
     .select("id").single();
 
-  if (error || !booking) return `Errore: ${error?.message}`;
+  if (error || !booking) {
+    console.error("Booking insert error:", error);
+    return `Errore creazione prenotazione: ${error?.message}`;
+  }
 
-  await db.from("booking_items").insert({
+  const { error: itemError } = await db.from("booking_items").insert({
     booking_id: booking.id,
     map_element_id: element_id,
-    num_sunbeds: sunbeds_count || 2,
-    daily_price: dailyPrice,
+    sunbeds_count: sunbeds_count || 2,
+    price_cents: Math.round(dailyPrice * 100),
   });
+
+  if (itemError) {
+    console.error("Booking item insert error:", itemError);
+    // Non bloccare — la prenotazione è già creata
+  }
 
   const emailNote = guest_email ? `Una email di conferma con il QR code verrà inviata a ${guest_email}.` : "";
   return `Prenotazione confermata!\nCodice: ${bookingCode}\nOmbrellone: ${el.label} — ${row?.label}\nDate: ${start_date} → ${end_date}\nTotale: ${totalPrice > 0 ? totalPrice.toFixed(2) + "€" : "da concordare"}\n${emailNote}\nMostra il codice ${bookingCode} allo staff all'arrivo.`;
