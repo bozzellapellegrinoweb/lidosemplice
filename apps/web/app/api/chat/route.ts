@@ -1,3 +1,5 @@
+export const runtime = "nodejs"; // Anthropic SDK richiede Node.js, NON Edge runtime
+
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 
