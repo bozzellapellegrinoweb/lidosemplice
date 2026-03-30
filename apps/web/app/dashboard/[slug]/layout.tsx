@@ -2,6 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { AIChat } from "@/components/chat/ai-chat";
+import { GlobalNotifications } from "@/components/dashboard/global-notifications";
 
 interface Props {
   children: React.ReactNode;
@@ -58,6 +59,7 @@ export default async function EstablishmentLayout({ children, params }: Props) {
         </div>
       </main>
       <AIChat establishmentId={establishment.id} userRole="admin" establishmentName={establishment.name} />
+      <GlobalNotifications establishmentId={establishment.id} slug={slug} soundEnabled={true} />
     </>
   );
 }

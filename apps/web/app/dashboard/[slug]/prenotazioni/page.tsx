@@ -46,11 +46,10 @@ interface QrScanResult {
 function QrVideoScanner({ onResult, onError }: { onResult: (text: string) => void; onError: (msg: string) => void }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null);
+  const isStoppedRef = useRef(false); // evita doppio stop() che causa l'errore
   const videoId = "qr-scanner-video";
 
   useEffect(() => {
-    let stopped = false;
-
     async function startScanner() {
       const { Html5Qrcode } = await import("html5-qrcode");
       const scanner = new Html5Qrcode(videoId);
@@ -60,8 +59,8 @@ function QrVideoScanner({ onResult, onError }: { onResult: (text: string) => voi
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 240, height: 240 } },
           (decodedText) => {
-            if (stopped) return;
-            stopped = true;
+            if (isStoppedRef.current) return;
+            isStoppedRef.current = true;
             scanner.stop().then(() => scanner.clear()).catch(() => {});
             onResult(decodedText);
           },
@@ -76,8 +75,8 @@ function QrVideoScanner({ onResult, onError }: { onResult: (text: string) => voi
     startScanner();
 
     return () => {
-      stopped = true;
-      if (scannerRef.current) {
+      if (!isStoppedRef.current && scannerRef.current) {
+        isStoppedRef.current = true;
         scannerRef.current.stop().catch(() => {});
       }
     };
