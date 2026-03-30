@@ -40,18 +40,51 @@ interface EstablishmentSettings {
   amenities: AmenitiesData;
 }
 
+// ── Ottimizzazione immagine lato client ───────────────────────────────────────
+// Ridimensiona e converte in WebP prima dell'upload.
+// logo: max 400px, gallery/cover: max 1920px — qualità 85%
+
+async function optimizeImage(file: File, maxPx: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const ratio = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width * ratio);
+      const h = Math.round(img.height * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => { blob ? resolve(blob) : reject(new Error("canvas.toBlob failed")); },
+        "image/webp",
+        0.85
+      );
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 // ── Upload helper ─────────────────────────────────────────────────────────────
 
 async function uploadPhoto(
   file: File,
   establishmentId: string,
-  filename: string
+  filename: string,
+  maxPx = 1920
 ): Promise<string | null> {
+  const optimized = await optimizeImage(file, maxPx).catch(() => file);
+  // Forza estensione .webp sul filename
+  const webpName = filename.replace(/\.[^.]+$/, "") + ".webp";
   const supabase = createClient();
-  const path = `${establishmentId}/${filename}`;
+  const path = `${establishmentId}/${webpName}`;
   const { error } = await supabase.storage
     .from("establishment-photos")
-    .upload(path, file, { upsert: true, contentType: file.type });
+    .upload(path, optimized, { upsert: true, contentType: "image/webp" });
   if (error) { console.error("Upload error:", error); return null; }
   const { data } = supabase.storage.from("establishment-photos").getPublicUrl(path);
   return data.publicUrl;
@@ -259,9 +292,9 @@ export default function ImpostazioniPage() {
 
   async function uploadSinglePhoto(file: File, fieldName: "logo_url" | "cover_image_url") {
     if (!settings) return;
-    const ext = file.name.split(".").pop() || "jpg";
-    const filename = `${fieldName.replace("_url", "")}-${Date.now()}.${ext}`;
-    const url = await uploadPhoto(file, settings.id, filename);
+    const isLogo = fieldName === "logo_url";
+    const filename = `${fieldName.replace("_url", "")}-${Date.now()}.webp`;
+    const url = await uploadPhoto(file, settings.id, filename, isLogo ? 400 : 1920);
     if (url) updateField(fieldName, url);
   }
 
