@@ -28,6 +28,9 @@ interface Establishment {
   check_in_time?: string;
   check_out_time?: string;
   amenities?: AmenitiesData;
+  latitude?: string;
+  longitude?: string;
+  google_place_id?: string;
 }
 
 interface Service {
@@ -398,15 +401,24 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
             <section>
               <h2 className="text-2xl font-bold text-gray-900">Informazioni & contatti</h2>
               <div className="mt-4 divide-y divide-gray-100 rounded-2xl border border-gray-100 overflow-hidden">
-                {establishment.address && (
-                  <div className="flex items-start gap-4 p-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50"><MapPin className="h-5 w-5 text-sky-500" /></div>
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Dove siamo</p>
-                      <p className="mt-0.5 text-gray-800">{establishment.address}{establishment.city && `, ${establishment.city}`}{establishment.province && ` (${establishment.province})`}</p>
-                    </div>
-                  </div>
-                )}
+                {establishment.address && (() => {
+                  const q = encodeURIComponent(
+                    `${establishment.address}, ${establishment.city ?? ""} ${establishment.province ?? ""}`.trim()
+                  );
+                  const mapsUrl = establishment.google_place_id
+                    ? `https://www.google.com/maps/search/?api=1&query=${q}&query_place_id=${establishment.google_place_id}`
+                    : `https://www.google.com/maps/search/?api=1&query=${q}`;
+                  return (
+                    <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-start gap-4 p-4 hover:bg-gray-50 transition">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50"><MapPin className="h-5 w-5 text-sky-500" /></div>
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Dove siamo</p>
+                        <p className="mt-0.5 text-gray-800">{establishment.address}{establishment.city && `, ${establishment.city}`}{establishment.province && ` (${establishment.province})`}</p>
+                        <p className="mt-0.5 text-xs text-sky-500">Apri in Google Maps →</p>
+                      </div>
+                    </a>
+                  );
+                })()}
                 {establishment.check_in_time && (
                   <div className="flex items-start gap-4 p-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50"><Clock className="h-5 w-5 text-sky-500" /></div>
@@ -435,6 +447,27 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
                   </a>
                 )}
               </div>
+
+              {/* Mappa Google Maps embed */}
+              {establishment.address && (() => {
+                const q = encodeURIComponent(
+                  `${establishment.address}, ${establishment.city ?? ""} ${establishment.province ?? ""}`.trim()
+                );
+                return (
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-gray-100 shadow-sm">
+                    <iframe
+                      src={`https://maps.google.com/maps?q=${q}&output=embed&hl=it`}
+                      width="100%"
+                      height="300"
+                      style={{ border: 0 }}
+                      allowFullScreen
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      title="Posizione su Google Maps"
+                    />
+                  </div>
+                );
+              })()}
             </section>
           )}
 
