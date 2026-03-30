@@ -43,7 +43,7 @@ const TOOL_CREATE_BOOKING = {
       element_id:    { type: "string", description: "ID ombrellone (dalla lista disponibilità)" },
       sunbeds_count: { type: "number", description: "Numero lettini (default 2)" },
     },
-    required: ["guest_name", "guest_phone", "guest_email", "start_date", "end_date", "element_id"],
+    required: ["guest_name", "guest_phone", "start_date", "end_date", "element_id"],
   },
 };
 
