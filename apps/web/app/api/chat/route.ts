@@ -73,7 +73,7 @@ async function runTool(
   if (name === "get_availability") {
     const { start_date, end_date } = input as { start_date: string; end_date: string };
 
-    // Tutti gli elementi attivi
+    // Tutti gli elementi attivi con la loro fila
     const { data: maps } = await supabase
       .from("beach_maps")
       .select("id, name")
@@ -94,36 +94,41 @@ async function runTool(
     const rowIds = rows.map((r) => r.id);
     const { data: elements } = await supabase
       .from("map_elements")
-      .select("id, label, element_type, map_row_id")
-      .in("map_row_id", rowIds)
+      .select("id, label, element_type, row_id")
+      .in("row_id", rowIds)
       .eq("is_bookable", true);
 
     if (!elements?.length) return "Nessun elemento prenotabile.";
 
-    // Elementi già prenotati in quel periodo
-    const { data: occupied } = await supabase
+    // Prenotazioni attive in quel periodo
+    const { data: activeBookings } = await supabase
       .from("bookings")
-      .select("booking_items(map_element_id)")
+      .select("id")
       .eq("establishment_id", establishmentId)
       .in("status", ["confirmed", "checked_in", "pending"])
       .lte("start_date", end_date)
       .gte("end_date", start_date);
 
+    const activeIds = (activeBookings || []).map((b) => b.id);
     const occupiedIds = new Set<string>();
-    (occupied || []).forEach((b) => {
-      (b.booking_items as { map_element_id: string }[])?.forEach((i) => occupiedIds.add(i.map_element_id));
-    });
+    if (activeIds.length > 0) {
+      const { data: occupiedItems } = await supabase
+        .from("booking_items")
+        .select("map_element_id")
+        .in("booking_id", activeIds);
+      (occupiedItems || []).forEach((i) => occupiedIds.add(i.map_element_id));
+    }
 
     // Raggruppa per fila
     const result: string[] = [];
     for (const row of rows) {
       const available = elements.filter(
-        (e) => e.map_row_id === row.id && !occupiedIds.has(e.id)
+        (e) => e.row_id === row.id && !occupiedIds.has(e.id)
       );
       if (available.length > 0) {
         const map = maps.find((m) => m.id === row.beach_map_id);
         result.push(
-          `${map?.name || "Spiaggia"} - ${row.label}: ${available.map((e) => `${e.label} (id:${e.id})`).join(", ")}`
+          `${map?.name || "Spiaggia"} - Fila ${row.row_number} (${row.label}): ${available.map((e) => `${e.label} (id:${e.id})`).join(", ")}`
         );
       }
     }
@@ -143,27 +148,30 @@ async function runTool(
       .lte("start_date", end_date)
       .gte("end_date", start_date);
 
-    if (!seasons?.length) return "Nessuna tariffa configurata per questo periodo.";
+    if (!seasons?.length) return "Nessuna stagione/tariffa configurata per questo periodo.";
 
     const seasonIds = seasons.map((s) => s.id);
     const { data: pricing } = await supabase
       .from("pricing_rules")
-      .select("row_number, price_cents, duration, season_id")
+      .select("base_price, duration, season_id, row_id, map_rows(row_number, label)")
       .in("season_id", seasonIds)
-      .eq("duration", "full_day")
-      .order("row_number");
+      .eq("duration", "full_day");
 
     if (!pricing?.length) return "Nessuna tariffa disponibile.";
-
-    const lines = pricing.map((p) => {
-      const season = seasons.find((s) => s.id === p.season_id);
-      return `Fila ${p.row_number}: ${(p.price_cents / 100).toFixed(2)}€/giorno (${season?.name})`;
-    });
 
     const days = Math.max(
       1,
       Math.ceil((new Date(end_date).getTime() - new Date(start_date).getTime()) / 86400000)
     );
+
+    const lines = pricing.map((p) => {
+      const season = seasons.find((s) => s.id === p.season_id);
+      const row = p.map_rows as { row_number: number; label: string } | null;
+      const rowLabel = row ? `Fila ${row.row_number} (${row.label})` : "Tutte le file";
+      const total = (Number(p.base_price) * days).toFixed(2);
+      return `${rowLabel}: ${Number(p.base_price).toFixed(2)}€/giorno → totale ${total}€ (${season?.name})`;
+    });
+
     return `Tariffe per ${days} giorno/i (${start_date} → ${end_date}):\n${lines.join("\n")}`;
   }
 
@@ -179,10 +187,10 @@ async function runTool(
         sunbeds_count?: number;
       };
 
-    // Trova fila e prezzo
+    // Trova elemento e fila
     const { data: el } = await supabase
       .from("map_elements")
-      .select("id, label, map_row_id")
+      .select("id, label, row_id")
       .eq("id", element_id)
       .single();
 
@@ -190,8 +198,8 @@ async function runTool(
 
     const { data: row } = await supabase
       .from("map_rows")
-      .select("row_number, label")
-      .eq("id", el.map_row_id)
+      .select("id, row_number, label")
+      .eq("id", el.row_id)
       .single();
 
     const days = Math.max(
@@ -208,23 +216,24 @@ async function runTool(
       .gte("end_date", start_date)
       .limit(1);
 
-    let priceCents = 0;
+    let dailyPrice = 0;
     if (seasons?.length && row) {
       const { data: pr } = await supabase
         .from("pricing_rules")
-        .select("price_cents")
+        .select("base_price")
         .eq("season_id", seasons[0].id)
-        .eq("row_number", row.row_number)
+        .eq("row_id", row.id)
         .eq("duration", "full_day")
-        .single();
-      priceCents = (pr?.price_cents || 0) * days;
+        .maybeSingle();
+      dailyPrice = Number(pr?.base_price || 0);
     }
+
+    const totalPrice = dailyPrice * days;
 
     // Genera codice prenotazione
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let bookingCode = "BK-";
     for (let i = 0; i < 5; i++) bookingCode += chars.charAt(Math.floor(Math.random() * chars.length));
-    const qrToken = crypto.randomUUID();
 
     // Usa admin client per bypass RLS
     const adminSupabase = createAdminClient(
@@ -246,8 +255,8 @@ async function runTool(
         duration: "full_day",
         status: "confirmed",
         payment_method: "onsite",
-        total_cents: priceCents,
-        qr_code_token: qrToken,
+        subtotal: totalPrice,
+        total: totalPrice,
       })
       .select("id")
       .single();
@@ -257,11 +266,11 @@ async function runTool(
     await adminSupabase.from("booking_items").insert({
       booking_id: booking.id,
       map_element_id: element_id,
-      sunbeds_count: sunbeds_count || 2,
-      price_cents: priceCents,
+      num_sunbeds: sunbeds_count || 2,
+      daily_price: dailyPrice,
     });
 
-    return `Prenotazione creata con successo!\nCodice: ${bookingCode}\nPosto: ${el.label} (${row?.label})\nDate: ${start_date} → ${end_date}\nTotale: ${(priceCents / 100).toFixed(2)}€\nIl cliente mostrerà il codice ${bookingCode} al check-in.`;
+    return `Prenotazione creata con successo!\nCodice: ${bookingCode}\nPosto: ${el.label} (${row?.label})\nDate: ${start_date} → ${end_date}\nTotale: ${totalPrice.toFixed(2)}€\nIl cliente mostrerà il codice ${bookingCode} al check-in.`;
   }
 
   return "Tool non trovato.";
