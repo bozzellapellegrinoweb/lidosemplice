@@ -27,26 +27,6 @@ const TOOL_GET_AVAILABILITY = {
   },
 };
 
-// ─── Tool: crea prenotazione ──────────────────────────────────────────────────
-
-const TOOL_CREATE_BOOKING = {
-  name: "create_booking",
-  description: "Crea la prenotazione dopo aver raccolto nome, telefono, date e ombrellone scelto. Chiedi conferma esplicita al cliente prima di usare questo tool.",
-  input_schema: {
-    type: "object",
-    properties: {
-      guest_name:    { type: "string", description: "Nome e cognome" },
-      guest_phone:   { type: "string", description: "Telefono" },
-      guest_email:   { type: "string", description: "Email del cliente (obbligatoria per la conferma)" },
-      start_date:    { type: "string", description: "Data inizio (YYYY-MM-DD)" },
-      end_date:      { type: "string", description: "Data fine (YYYY-MM-DD)" },
-      element_id:    { type: "string", description: "ID ombrellone (dalla lista disponibilità)" },
-      sunbeds_count: { type: "number", description: "Numero lettini (default 2)" },
-    },
-    required: ["guest_name", "guest_phone", "start_date", "end_date", "element_id"],
-  },
-};
-
 // ─── Admin Supabase (bypassa RLS) ─────────────────────────────────────────────
 
 function adminSupabase() {
@@ -151,8 +131,42 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
         .order("row_number");
 
       if (!rows?.length) continue;
-      lines.push(`\n[${map.name}]`);
+
+      // Elementi per tipo in questa mappa
+      const rowIds = rows.map((r) => r.id);
+      const { data: elements } = await db
+        .from("map_elements")
+        .select("element_type, map_row_id")
+        .in("map_row_id", rowIds)
+        .eq("is_bookable", true);
+
+      const elTypeNames: Record<string, string> = {
+        umbrella: "ombrellone", sunbed: "lettino", gazebo: "gazebo",
+        cabana: "cabana", custom: "posto",
+      };
+      // Sommario tipi intera mappa
+      const mapTypeCounts: Record<string, number> = {};
+      for (const el of elements || []) {
+        const t = el.element_type as string;
+        if (elTypeNames[t]) mapTypeCounts[t] = (mapTypeCounts[t] || 0) + 1;
+      }
+      const mapTypeSummary = Object.entries(mapTypeCounts)
+        .map(([t, n]) => `${n} ${elTypeNames[t]}${n > 1 ? "i" : ""}`)
+        .join(", ");
+
+      lines.push(`\n[${map.name}]${mapTypeSummary ? ` — ${mapTypeSummary}` : ""}`);
+
       for (const row of rows) {
+        const rowEls = (elements || []).filter((e) => e.map_row_id === row.id);
+        const rowTypeCounts: Record<string, number> = {};
+        for (const el of rowEls) {
+          const t = el.element_type as string;
+          if (elTypeNames[t]) rowTypeCounts[t] = (rowTypeCounts[t] || 0) + 1;
+        }
+        const rowTypeSummary = Object.entries(rowTypeCounts)
+          .map(([t, n]) => `${n} ${elTypeNames[t]}${n > 1 ? "i" : ""}`)
+          .join(", ");
+
         let priceInfo = "";
         if (seasons?.length) {
           const prices: string[] = [];
@@ -170,7 +184,8 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
           }
           if (prices.length) priceInfo = ` | ${prices.join("; ")}`;
         }
-        lines.push(`  - Fila ${row.row_number}: ${row.label}${priceInfo}`);
+        const rowDetail = rowTypeSummary ? ` (${rowTypeSummary})` : "";
+        lines.push(`  - Fila ${row.row_number}: ${row.label}${rowDetail}${priceInfo}`);
       }
     }
   }
@@ -246,87 +261,6 @@ async function runGetAvailability(input: Record<string, unknown>, establishmentI
   return result.length
     ? `Disponibilità dal ${start_date} al ${end_date}:\n${result.join("\n")}`
     : `Nessun posto disponibile dal ${start_date} al ${end_date}.`;
-}
-
-// ─── Esecuzione tool create_booking ──────────────────────────────────────────
-
-async function runCreateBooking(input: Record<string, unknown>, establishmentId: string): Promise<string> {
-  const { guest_name, guest_phone, guest_email, start_date, end_date, element_id, sunbeds_count } =
-    input as {
-      guest_name: string; guest_phone: string; guest_email?: string;
-      start_date: string; end_date: string; element_id: string; sunbeds_count?: number;
-    };
-
-  const db = adminSupabase();
-
-  const { data: el } = await db
-    .from("map_elements").select("id, label, map_row_id").eq("id", element_id).single();
-  if (!el) return "Ombrellone non trovato.";
-
-  const { data: row } = await db
-    .from("map_rows").select("id, row_number, label").eq("id", el.map_row_id).single();
-
-  const days = Math.max(1, Math.ceil(
-    (new Date(end_date).getTime() - new Date(start_date).getTime()) / 86400000
-  ));
-
-  // Prezzo per la fila nel periodo
-  let dailyPrice = 0;
-  const { data: seasons } = await db
-    .from("seasons").select("id")
-    .eq("establishment_id", establishmentId)
-    .lte("start_date", end_date).gte("end_date", start_date).limit(1);
-
-  if (seasons?.length && row) {
-    const { data: pr } = await db
-      .from("pricing_rules").select("base_price")
-      .eq("season_id", seasons[0].id).eq("row_id", row.id).eq("duration", "full_day")
-      .maybeSingle();
-    dailyPrice = Number(pr?.base_price || 0);
-  }
-
-  const totalPrice = dailyPrice * days;
-
-  // Codice prenotazione
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let bookingCode = "BK-";
-  for (let i = 0; i < 5; i++) bookingCode += chars.charAt(Math.floor(Math.random() * chars.length));
-
-  const { data: booking, error } = await db
-    .from("bookings")
-    .insert({
-      establishment_id: establishmentId,
-      booking_code: bookingCode,
-      guest_name,
-      guest_phone: guest_phone || null,
-      guest_email: guest_email || null,
-      start_date, end_date,
-      duration: "full_day",
-      status: "confirmed",
-      payment_method: "onsite",
-      total_cents: Math.round(totalPrice * 100),
-    })
-    .select("id").single();
-
-  if (error || !booking) {
-    console.error("Booking insert error:", error);
-    return `Errore creazione prenotazione: ${error?.message}`;
-  }
-
-  const { error: itemError } = await db.from("booking_items").insert({
-    booking_id: booking.id,
-    map_element_id: element_id,
-    sunbeds_count: sunbeds_count || 2,
-    price_cents: Math.round(dailyPrice * 100),
-  });
-
-  if (itemError) {
-    console.error("Booking item insert error:", itemError);
-    // Non bloccare — la prenotazione è già creata
-  }
-
-  const emailNote = guest_email ? `Una email di conferma con il QR code verrà inviata a ${guest_email}.` : "";
-  return `Prenotazione confermata!\nCodice: ${bookingCode}\nOmbrellone: ${el.label} — ${row?.label}\nDate: ${start_date} → ${end_date}\nTotale: ${totalPrice > 0 ? totalPrice.toFixed(2) + "€" : "da concordare"}\n${emailNote}\nMostra il codice ${bookingCode} allo staff all'arrivo.`;
 }
 
 // ─── Handler principale ───────────────────────────────────────────────────────
