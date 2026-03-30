@@ -103,16 +103,18 @@ function AddressAutocomplete({
   }, [onSelect]);
 
   // Carica lo script Google Maps al focus (lazy loading)
+  // Usa il parametro callback= nell'URL per garantire che places sia pronto
   function handleFocus() {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
     if (!apiKey) return;
     if (window.google?.maps?.places) { initAutocomplete(); return; }
     if (document.getElementById("gm-script")) return;
+    (window as unknown as Record<string, unknown>).__gmPlacesReady = initAutocomplete;
     const script = document.createElement("script");
     script.id = "gm-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&language=it`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&language=it&callback=__gmPlacesReady`;
     script.async = true;
-    script.onload = initAutocomplete;
+    script.defer = true;
     document.head.appendChild(script);
   }
 
