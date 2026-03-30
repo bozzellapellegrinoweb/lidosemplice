@@ -59,7 +59,7 @@ export default async function EstablishmentLayout({ children, params }: Props) {
         </div>
       </main>
       <AIChat establishmentId={establishment.id} userRole="admin" establishmentName={establishment.name} />
-      <GlobalNotifications establishmentId={establishment.id} slug={slug} soundEnabled={true} />
+      <GlobalNotifications establishmentId={establishment.id} slug={slug} />
     </>
   );
 }
