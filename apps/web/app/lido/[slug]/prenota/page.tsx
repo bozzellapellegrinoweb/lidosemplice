@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
   Wallet,
   Banknote,
 } from "lucide-react";
+import QRCode from "qrcode";
 import { createClient } from "@/lib/supabase/client";
 import { generateBookingCode } from "@/lib/utils";
 
@@ -122,7 +123,8 @@ export default function BookingPage() {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"stripe" | "paypal" | "onsite">("stripe");
   const [paypalEnabled, setPaypalEnabled] = useState(false);
-  const [bookingConfirmed, setBookingConfirmed] = useState<{ code: string; total: number } | null>(null);
+  const [bookingConfirmed, setBookingConfirmed] = useState<{ code: string; total: number; qrToken: string } | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
 
   useEffect(() => {
     loadData();
@@ -343,6 +345,7 @@ export default function BookingPage() {
 
     const supabase = createClient();
     const bookingCode = generateBookingCode();
+    const qrToken = crypto.randomUUID();
 
     const { data: booking, error } = await supabase
       .from("bookings")
@@ -358,7 +361,7 @@ export default function BookingPage() {
         status: paymentMethod === "onsite" ? "pending" : "confirmed",
         payment_method: paymentMethod,
         total_cents: Math.round(total * 100),
-        qr_code_token: crypto.randomUUID(),
+        qr_code_token: qrToken,
       })
       .select("id")
       .single();
@@ -401,7 +404,9 @@ export default function BookingPage() {
     }).catch(console.error);
 
     // Mostra schermata di conferma (niente alert() nativo che viene bloccato su mobile)
-    setBookingConfirmed({ code: bookingCode, total: Math.round(total * 100) });
+    const qrDataUrlGenerated = await QRCode.toDataURL(qrToken, { width: 250, margin: 2 });
+    setQrDataUrl(qrDataUrlGenerated);
+    setBookingConfirmed({ code: bookingCode, total: Math.round(total * 100), qrToken });
   }
 
   // Schermata di conferma prenotazione completata
@@ -413,16 +418,25 @@ export default function BookingPage() {
             <Check className="h-10 w-10 text-available" />
           </div>
           <h1 className="mb-2 text-2xl font-black">Prenotazione confermata!</h1>
-          <p className="mb-6 text-muted-foreground">
-            Riceverai una email con il QR code per il check-in.
+          <p className="mb-4 text-muted-foreground">
+            Mostra questo QR code all&apos;arrivo per il check-in.
           </p>
+
+          {/* QR Code */}
+          {qrDataUrl && (
+            <div className="mx-auto mb-4 inline-block rounded-2xl border-4 border-brand-azure bg-white p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qrDataUrl} alt="QR check-in" width={200} height={200} className="block" />
+            </div>
+          )}
+
           <div className="mb-6 rounded-xl border bg-muted/50 p-5 text-left space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Codice prenotazione</span>
               <span className="font-mono font-bold text-brand-azure">{bookingConfirmed.code}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Totale pagato</span>
+              <span className="text-sm text-muted-foreground">Totale</span>
               <span className="text-lg font-black">{(bookingConfirmed.total / 100).toFixed(2)}&euro;</span>
             </div>
           </div>

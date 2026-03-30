@@ -25,9 +25,212 @@ import {
   AlertCircle,
   Volume2,
   VolumeX,
+  CheckCircle2,
+  ScanLine,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { BookingModal } from "@/components/booking-modal";
+
+// ── QR Scanner Modal ──────────────────────────────────────────────────────────
+
+interface QrScanResult {
+  id: string;
+  booking_code: string;
+  guest_name: string;
+  start_date: string;
+  end_date: string;
+  total_cents: number;
+  status: string;
+}
+
+function QrVideoScanner({ onResult, onError }: { onResult: (text: string) => void; onError: (msg: string) => void }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null);
+  const videoId = "qr-scanner-video";
+
+  useEffect(() => {
+    let stopped = false;
+
+    async function startScanner() {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const scanner = new Html5Qrcode(videoId);
+
+      try {
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          (decodedText) => {
+            if (stopped) return;
+            stopped = true;
+            scanner.stop().then(() => scanner.clear()).catch(() => {});
+            onResult(decodedText);
+          },
+          () => {}
+        );
+        scannerRef.current = scanner;
+      } catch {
+        onError("Impossibile accedere alla fotocamera. Controlla i permessi.");
+      }
+    }
+
+    startScanner();
+
+    return () => {
+      stopped = true;
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {});
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return <div id={videoId} className="w-full overflow-hidden rounded-xl" />;
+}
+
+function QrScannerModal({ onClose, onCheckin }: { onClose: () => void; onCheckin: (id: string) => void }) {
+  const [phase, setPhase] = useState<"scanning" | "loading" | "found" | "error" | "done">("scanning");
+  const [scanKey, setScanKey] = useState(0);
+  const [scanned, setScanned] = useState<QrScanResult | null>(null);
+  const [error, setError] = useState("");
+
+  async function handleResult(token: string) {
+    setPhase("loading");
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("bookings")
+      .select("id, booking_code, guest_name, start_date, end_date, total_cents, status")
+      .eq("qr_code_token", token)
+      .single();
+
+    if (data) {
+      setScanned(data as QrScanResult);
+      setPhase("found");
+    } else {
+      setError("QR code non riconosciuto. Nessuna prenotazione trovata.");
+      setPhase("error");
+    }
+  }
+
+  function handleScanError(msg: string) {
+    setError(msg);
+    setPhase("error");
+  }
+
+  async function handleCheckin() {
+    if (!scanned) return;
+    const supabase = createClient();
+    await supabase.from("bookings").update({ status: "checked_in" }).eq("id", scanned.id);
+    onCheckin(scanned.id);
+    setPhase("done");
+  }
+
+  function handleRetry() {
+    setError("");
+    setScanned(null);
+    setScanKey((k) => k + 1);
+    setPhase("scanning");
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-bold">Scansiona QR</h2>
+          <button onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Check-in eseguito */}
+        {phase === "done" && scanned && (
+          <div className="text-center space-y-4">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
+              <CheckCircle2 className="h-10 w-10 text-green-600" />
+            </div>
+            <h3 className="text-2xl font-black text-green-600">Check-in fatto!</h3>
+            <p className="text-lg font-bold">{scanned.guest_name}</p>
+            <p className="font-mono text-sm text-muted-foreground">{scanned.booking_code}</p>
+            <Button variant="brand" className="w-full" onClick={onClose}>Chiudi</Button>
+          </div>
+        )}
+
+        {/* Prenotazione trovata */}
+        {phase === "found" && scanned && (
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-muted/50 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Cliente</span>
+                <span className="font-bold">{scanned.guest_name}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Codice</span>
+                <span className="font-mono text-sm font-bold text-brand-azure">{scanned.booking_code}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Date</span>
+                <span className="text-sm font-medium">
+                  {scanned.start_date === scanned.end_date ? scanned.start_date : `${scanned.start_date} → ${scanned.end_date}`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Totale</span>
+                <span className="font-black text-lg">{(scanned.total_cents / 100).toFixed(2)}€</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Stato</span>
+                <Badge variant={scanned.status === "checked_in" ? "available" : scanned.status === "confirmed" ? "partial" : "outline"}>
+                  {scanned.status === "checked_in" ? "Già fatto check-in" : scanned.status === "confirmed" ? "Confermata" : scanned.status}
+                </Badge>
+              </div>
+            </div>
+            {scanned.status === "checked_in" ? (
+              <p className="text-center text-sm text-muted-foreground">Questo cliente ha già effettuato il check-in.</p>
+            ) : (
+              <Button variant="brand" size="xl" className="w-full text-lg font-bold" onClick={handleCheckin}>
+                <UserCheck className="h-5 w-5" />
+                Conferma Check-in
+              </Button>
+            )}
+            <Button variant="outline" className="w-full" onClick={handleRetry}>
+              <ScanLine className="h-4 w-4" />
+              Scansiona un altro
+            </Button>
+          </div>
+        )}
+
+        {/* Errore */}
+        {phase === "error" && (
+          <div className="space-y-4">
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-center">
+              <AlertCircle className="h-8 w-8 text-destructive" />
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
+            <Button variant="outline" className="w-full" onClick={handleRetry}>
+              <ScanLine className="h-4 w-4" />
+              Riprova
+            </Button>
+          </div>
+        )}
+
+        {/* Loading */}
+        {phase === "loading" && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <Loader2 className="h-8 w-8 animate-spin text-brand-azure" />
+            <p className="text-sm text-muted-foreground">Ricerca prenotazione...</p>
+          </div>
+        )}
+
+        {/* Scanning */}
+        {phase === "scanning" && (
+          <>
+            <p className="mb-3 text-center text-sm text-muted-foreground">Inquadra il QR code della prenotazione</p>
+            <QrVideoScanner key={scanKey} onResult={handleResult} onError={handleScanError} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -170,6 +373,7 @@ export default function PrenotazioniPage() {
 
   // Modale nuova prenotazione
   const [showModal, setShowModal] = useState(false);
+  const [showQrScanner, setShowQrScanner] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [bookingAlert, setBookingAlert] = useState<NewBookingAlert | null>(null);
   const stopSoundRef = useRef<(() => void) | null>(null);
@@ -426,7 +630,7 @@ export default function PrenotazioniPage() {
             {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             Suono {soundOn ? "attivo" : "off"}
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => setShowQrScanner(true)}>
             <QrCode className="h-4 w-4" />
             Scansiona QR
           </Button>
@@ -645,6 +849,16 @@ export default function PrenotazioniPage() {
           </Card>
         )}
       </div>
+
+      {/* QR Scanner */}
+      {showQrScanner && (
+        <QrScannerModal
+          onClose={() => setShowQrScanner(false)}
+          onCheckin={(id) => {
+            setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: "checked_in" } : b));
+          }}
+        />
+      )}
 
       {/* Modale nuova prenotazione */}
       {showModal && establishmentId && (
