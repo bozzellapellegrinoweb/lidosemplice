@@ -104,10 +104,14 @@ export async function POST(request: Request) {
       ? `Sei l'assistente AI di LidoFacile per il gestore dello stabilimento. Rispondi in italiano, in modo conciso e professionale. Puoi aiutare con statistiche, prenotazioni, gestione e consigli operativi. ${context}`
       : `Sei l'assistente AI dello stabilimento balneare. Rispondi in italiano, in modo amichevole e breve. Aiuta i clienti a trovare disponibilità, prenotare e scoprire i servizi. ${context}`;
 
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return Response.json({ error: "ANTHROPIC_API_KEY non configurata" }, { status: 503 });
+  }
+
   try {
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
+      max_tokens: 512,
       system: systemPrompt,
       messages: [{ role: "user", content: message }],
     });
@@ -117,9 +121,10 @@ export async function POST(request: Request) {
 
     return Response.json({ response: text });
   } catch (error) {
-    console.error("Claude API error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Claude API error:", msg);
     return Response.json(
-      { error: "Errore nel servizio AI. Riprova." },
+      { error: `Errore AI: ${msg}` },
       { status: 500 }
     );
   }

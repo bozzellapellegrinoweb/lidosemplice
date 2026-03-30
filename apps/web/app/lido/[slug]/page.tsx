@@ -309,7 +309,7 @@ export default async function LidoPage({ params }: PageProps) {
       </footer>
 
       {/* Chat AI flotante per clienti */}
-      <AIChat establishmentId={establishment.id} userRole="client" />
+      <AIChat establishmentId={establishment.id} userRole="client" establishmentName={establishment.name} />
     </div>
   );
 }
