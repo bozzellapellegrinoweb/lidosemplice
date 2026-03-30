@@ -1,13 +1,11 @@
-export const runtime = "nodejs"; // Anthropic SDK richiede Node.js, NON Edge runtime
-
 import { createClient } from "@/lib/supabase/server";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || "",
-});
 
 export async function POST(request: Request) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return Response.json({ error: "ANTHROPIC_API_KEY non configurata" }, { status: 503 });
+  }
+
   const { message, establishmentId, role } = await request.json();
 
   if (!message) {
@@ -33,7 +31,6 @@ export async function POST(request: Request) {
       if (est.email) context += `Email: ${est.email}. `;
     }
 
-    // Today's stats for admin
     if (role === "admin") {
       const today = new Date().toISOString().split("T")[0];
       const { count: bookingsToday } = await supabase
@@ -42,92 +39,54 @@ export async function POST(request: Request) {
         .eq("establishment_id", establishmentId)
         .gte("start_date", today)
         .lte("start_date", today);
-
-      const { count: totalElements } = await supabase
-        .from("map_elements")
-        .select("*", { count: "exact", head: true })
-        .in(
-          "map_row_id",
-          (
-            await supabase
-              .from("map_rows")
-              .select("id")
-              .in(
-                "beach_map_id",
-                (
-                  await supabase
-                    .from("beach_maps")
-                    .select("id")
-                    .eq("establishment_id", establishmentId)
-                ).data?.map((m) => m.id) || []
-              )
-          ).data?.map((r) => r.id) || []
-        );
-
-      context += `Prenotazioni oggi: ${bookingsToday || 0}. Posti totali: ${totalElements || 0}. `;
+      context += `Prenotazioni oggi: ${bookingsToday || 0}. `;
     }
 
-    // Available umbrellas for client queries
     if (role === "client") {
-      const { data: maps } = await supabase
-        .from("beach_maps")
-        .select("id")
-        .eq("establishment_id", establishmentId)
-        .eq("is_active", true);
-
-      if (maps && maps.length > 0) {
-        const { data: rows } = await supabase
-          .from("map_rows")
-          .select("id, label, row_number")
-          .eq("beach_map_id", maps[0].id)
-          .order("row_number");
-
-        if (rows) {
-          const rowInfo = rows.map((r) => `${r.label}: fila ${r.row_number}`);
-          context += `File disponibili: ${rowInfo.join(", ")}. `;
-        }
-      }
-
-      // Services
       const { data: services } = await supabase
         .from("additional_services")
         .select("name, price_cents")
         .eq("establishment_id", establishmentId)
         .eq("is_active", true);
-
       if (services && services.length > 0) {
-        context += `Servizi: ${services.map((s) => `${s.name} (${(s.price_cents / 100).toFixed(2)}€)`).join(", ")}. `;
+        context += `Servizi disponibili: ${services.map((s) => `${s.name} (${(s.price_cents / 100).toFixed(2)}€)`).join(", ")}. `;
       }
     }
   }
 
   const systemPrompt =
     role === "admin"
-      ? `Sei l'assistente AI di LidoFacile per il gestore dello stabilimento. Rispondi in italiano, in modo conciso e professionale. Puoi aiutare con statistiche, prenotazioni, gestione e consigli operativi. ${context}`
-      : `Sei l'assistente AI dello stabilimento balneare. Rispondi in italiano, in modo amichevole e breve. Aiuta i clienti a trovare disponibilità, prenotare e scoprire i servizi. ${context}`;
-
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json({ error: "ANTHROPIC_API_KEY non configurata" }, { status: 503 });
-  }
+      ? `Sei l'assistente AI di LidoFacile per il gestore. Rispondi in italiano, in modo conciso e professionale. ${context}`
+      : `Sei l'assistente AI dello stabilimento balneare. Rispondi in italiano, in modo amichevole e breve. Aiuta i clienti con disponibilità, prezzi e servizi. ${context}`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      system: systemPrompt,
-      messages: [{ role: "user", content: message }],
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        system: systemPrompt,
+        messages: [{ role: "user", content: message }],
+      }),
     });
 
-    const text =
-      response.content[0].type === "text" ? response.content[0].text : "";
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("Anthropic API error:", res.status, err);
+      return Response.json({ error: `Errore API: ${res.status}` }, { status: 500 });
+    }
 
+    const data = await res.json();
+    const text = data.content?.[0]?.text ?? "";
     return Response.json({ response: text });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error("Claude API error:", msg);
-    return Response.json(
-      { error: `Errore AI: ${msg}` },
-      { status: 500 }
-    );
+    console.error("Fetch error:", msg);
+    return Response.json({ error: `Errore connessione: ${msg}` }, { status: 500 });
   }
 }
