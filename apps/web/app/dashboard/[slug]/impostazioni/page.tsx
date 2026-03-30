@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,94 @@ interface EstablishmentSettings {
   cover_image_url: string;
   gallery_photo_urls: string[];
   amenities: AmenitiesData;
+}
+
+// ── Google Places Autocomplete ────────────────────────────────────────────────
+
+interface PlaceResult {
+  address: string;
+  city: string;
+  province: string;
+  cap: string;
+  latitude: string;
+  longitude: string;
+  google_place_id: string;
+}
+
+function AddressAutocomplete({
+  value,
+  onSelect,
+  onChange,
+}: {
+  value: string;
+  onSelect: (result: PlaceResult) => void;
+  onChange: (val: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+  const initAutocomplete = useCallback(() => {
+    if (!inputRef.current || autocompleteRef.current) return;
+    if (typeof window === "undefined" || !window.google?.maps?.places) return;
+
+    const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
+      types: ["establishment", "geocode"],
+      componentRestrictions: { country: "it" },
+      fields: ["address_components", "formatted_address", "geometry", "place_id"],
+    });
+
+    ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      if (!place.address_components) return;
+
+      const get = (type: string, short = false) => {
+        const c = place.address_components!.find((c) => c.types.includes(type));
+        return short ? (c?.short_name || "") : (c?.long_name || "");
+      };
+
+      // Indirizzo: via + numero civico
+      const route = get("route");
+      const number = get("street_number");
+      const address = route ? `${route}${number ? ` ${number}` : ""}` : (place.formatted_address || "");
+
+      onSelect({
+        address,
+        city: get("locality") || get("administrative_area_level_3"),
+        province: get("administrative_area_level_2", true),
+        cap: get("postal_code"),
+        latitude: place.geometry?.location?.lat().toString() || "",
+        longitude: place.geometry?.location?.lng().toString() || "",
+        google_place_id: place.place_id || "",
+      });
+    });
+
+    autocompleteRef.current = ac;
+  }, [onSelect]);
+
+  // Carica lo script Google Maps al focus (lazy loading)
+  function handleFocus() {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+    if (!apiKey) return;
+    if (window.google?.maps?.places) { initAutocomplete(); return; }
+    if (document.getElementById("gm-script")) return;
+    const script = document.createElement("script");
+    script.id = "gm-script";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&language=it`;
+    script.async = true;
+    script.onload = initAutocomplete;
+    document.head.appendChild(script);
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={handleFocus}
+      placeholder="Es. Via Roma 1, Rimini"
+      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    />
+  );
 }
 
 // ── Ottimizzazione immagine lato client ───────────────────────────────────────
@@ -214,6 +302,20 @@ export default function ImpostazioniPage() {
     load();
   }, [slug]);
 
+  function handlePlaceSelect(place: PlaceResult) {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      address: place.address,
+      city: place.city,
+      province: place.province,
+      cap: place.cap,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      google_place_id: place.google_place_id,
+    });
+  }
+
   function updateField(field: keyof EstablishmentSettings, value: string | boolean | string[]) {
     if (!settings) return;
     setSettings({ ...settings, [field]: value });
@@ -363,8 +465,17 @@ export default function ImpostazioniPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Indirizzo</label>
-              <Input value={settings.address} onChange={(e) => updateField("address", e.target.value)} />
+              <label className="mb-1.5 block text-sm font-medium">
+                Indirizzo
+                {process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY && (
+                  <span className="ml-2 text-xs text-muted-foreground">— digita per cercare automaticamente</span>
+                )}
+              </label>
+              <AddressAutocomplete
+                value={settings.address}
+                onSelect={handlePlaceSelect}
+                onChange={(val) => updateField("address", val)}
+              />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
