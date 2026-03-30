@@ -356,41 +356,56 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
             <section>
               <h2 className="text-2xl font-bold text-gray-900">La nostra spiaggia</h2>
               <p className="mt-1 text-sm text-gray-500">Vista dall&apos;alto — il mare è in cima</p>
-              <div className="mt-4 overflow-hidden rounded-2xl border border-sky-100">
-                <div className="flex items-center justify-center gap-2 bg-sky-400 py-3 text-sm font-semibold text-white">
-                  <Waves className="h-4 w-4" /> MARE <Waves className="h-4 w-4" />
+              <div className="mt-4 overflow-hidden rounded-2xl border border-sky-100 shadow-sm">
+                {/* Mare */}
+                <div className="flex items-center justify-center gap-2 py-4 text-sm font-bold tracking-widest text-white" style={{ background: "linear-gradient(135deg, #38bdf8, #0ea5e9)" }}>
+                  <Waves className="h-5 w-5" /> MARE <Waves className="h-5 w-5" />
                 </div>
-                <div className="bg-amber-50 divide-y divide-amber-100">
-                  {rows.map((row, i) => (
-                    <div key={row.id} className="flex items-center justify-between px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white text-xs font-bold" style={{ backgroundColor: i === 0 ? primary : "#94a3b8" }}>
-                          {row.row_number}
+                {/* Righe spiaggia */}
+                <div className="bg-amber-50">
+                  {rows.map((row, i) => {
+                    const isFirst = i === 0;
+                    const umbCount = Math.min(row.count, 12);
+                    const color = isFirst ? primary : i < 3 ? secondary : "#94a3b8";
+                    return (
+                      <div key={row.id} className={`px-4 py-3 ${i > 0 ? "border-t border-amber-100" : ""} ${isFirst ? "bg-amber-100/60" : ""}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white text-xs font-bold" style={{ backgroundColor: color }}>
+                              {row.row_number}
+                            </div>
+                            <span className="font-semibold text-gray-800 text-sm">{row.label}</span>
+                            {isFirst && (
+                              <span className="rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: primary }}>
+                                Prima fila
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-400">{row.count} posti</span>
                         </div>
-                        <div>
-                          <span className="font-medium text-gray-800">{row.label}</span>
-                          {i === 0 && <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-800">Prima fila</span>}
-                        </div>
+                        {/* Icone ombrelloni */}
+                        {row.count > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1 pl-9">
+                            {Array.from({ length: umbCount }).map((_, j) => (
+                              <Umbrella key={j} className="h-4 w-4" style={{ color }} />
+                            ))}
+                            {row.count > 12 && (
+                              <span className="self-center text-xs text-gray-400">+{row.count - 12}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="hidden sm:flex gap-1">
-                          {Array.from({ length: Math.min(row.count, 10) }).map((_, j) => (
-                            <Umbrella key={j} className="h-4 w-4" style={{ color: i === 0 ? primary : "#94a3b8" }} />
-                          ))}
-                          {row.count > 10 && <span className="text-xs text-gray-400 self-center">+{row.count - 10}</span>}
-                        </div>
-                        <span className="text-sm text-gray-500 whitespace-nowrap">{row.count} ombrelloni</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-                <div className="flex items-center justify-center bg-gray-100 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                {/* Ingresso */}
+                <div className="flex items-center justify-center gap-2 bg-gray-100 py-2.5 text-xs font-semibold uppercase tracking-widest text-gray-400">
                   ↑ Ingresso / Strada
                 </div>
               </div>
               <div className="mt-4 text-center">
-                <Link href={bookingUrl} className="inline-flex items-center gap-2 text-sm font-medium hover:underline" style={{ color: primary }}>
-                  Vedi la mappa interattiva e scegli il tuo posto <ChevronRight className="h-4 w-4" />
+                <Link href={bookingUrl} className="inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white shadow transition hover:opacity-90" style={{ backgroundColor: primary }}>
+                  Scegli il tuo ombrellone <ChevronRight className="h-4 w-4" />
                 </Link>
               </div>
             </section>

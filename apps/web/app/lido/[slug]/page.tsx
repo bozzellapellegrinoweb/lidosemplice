@@ -36,23 +36,24 @@ export default async function LidoPage({ params }: PageProps) {
 
   let rows: { id: string; label: string; count: number; row_number: number }[] = [];
   if (mapsData?.length) {
-    const mapIds = mapsData.map((m) => m.id);
+    // Usa solo la prima mappa attiva
+    const mapId = mapsData[0].id;
     const { data: mapRows } = await supabase
       .from("map_rows")
-      .select("id, label, row_number, beach_map_id")
-      .in("beach_map_id", mapIds)
+      .select("id, label, row_number")
+      .eq("beach_map_id", mapId)
       .order("row_number");
 
     if (mapRows) {
       const rowIds = mapRows.map((r) => r.id);
       const { data: elements } = await supabase
         .from("map_elements")
-        .select("id, row_id")
-        .in("row_id", rowIds)
+        .select("id, map_row_id")
+        .in("map_row_id", rowIds)
         .eq("is_bookable", true);
 
       for (const row of mapRows) {
-        const count = (elements || []).filter((e) => e.row_id === row.id).length;
+        const count = (elements || []).filter((e) => e.map_row_id === row.id).length;
         rows.push({ id: row.id, label: row.label, count, row_number: row.row_number });
       }
     }
