@@ -1,9 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
-
-// ─── Tipi ────────────────────────────────────────────────────────────────────
 
 type TextBlock = { type: "text"; text: string };
 type ToolUseBlock = { type: "tool_use"; id: string; name: string; input: Record<string, unknown> };
@@ -15,280 +12,286 @@ interface AnthropicMessage {
   content: string | ContentBlock[];
 }
 
-// ─── Tools disponibili per il cliente ────────────────────────────────────────
+// ─── Tool: verifica disponibilità real-time ───────────────────────────────────
 
-const CLIENT_TOOLS = [
-  {
-    name: "get_availability",
-    description: "Controlla quali ombrelloni/posti sono disponibili per un periodo. Usalo sempre prima di proporre elementi al cliente.",
-    input_schema: {
-      type: "object",
-      properties: {
-        start_date: { type: "string", description: "Data inizio soggiorno (YYYY-MM-DD)" },
-        end_date: { type: "string", description: "Data fine soggiorno (YYYY-MM-DD)" },
-      },
-      required: ["start_date", "end_date"],
+const TOOL_GET_AVAILABILITY = {
+  name: "get_availability",
+  description: "Controlla quali ombrelloni sono disponibili per le date scelte. Usa sempre questo tool prima di proporre posti al cliente.",
+  input_schema: {
+    type: "object",
+    properties: {
+      start_date: { type: "string", description: "Data inizio (YYYY-MM-DD)" },
+      end_date: { type: "string", description: "Data fine (YYYY-MM-DD)" },
     },
+    required: ["start_date", "end_date"],
   },
-  {
-    name: "get_prices",
-    description: "Ottieni i prezzi per un periodo. Usa sempre questo tool prima di comunicare un prezzo al cliente.",
-    input_schema: {
-      type: "object",
-      properties: {
-        start_date: { type: "string", description: "Data inizio (YYYY-MM-DD)" },
-        end_date: { type: "string", description: "Data fine (YYYY-MM-DD)" },
-      },
-      required: ["start_date", "end_date"],
-    },
-  },
-  {
-    name: "create_booking",
-    description: "Crea la prenotazione dopo aver raccolto: nome, telefono, date, elemento scelto. Chiedi conferma al cliente prima di usare questo tool.",
-    input_schema: {
-      type: "object",
-      properties: {
-        guest_name: { type: "string", description: "Nome e cognome del cliente" },
-        guest_phone: { type: "string", description: "Telefono del cliente" },
-        guest_email: { type: "string", description: "Email del cliente (opzionale)" },
-        start_date: { type: "string", description: "Data inizio (YYYY-MM-DD)" },
-        end_date: { type: "string", description: "Data fine (YYYY-MM-DD)" },
-        element_id: { type: "string", description: "ID dell'elemento da prenotare (dalla lista disponibilità)" },
-        sunbeds_count: { type: "number", description: "Numero di lettini (default 2)" },
-      },
-      required: ["guest_name", "guest_phone", "start_date", "end_date", "element_id"],
-    },
-  },
-];
+};
 
-// ─── Esecuzione tools ─────────────────────────────────────────────────────────
+// ─── Tool: crea prenotazione ──────────────────────────────────────────────────
 
-async function runTool(
-  name: string,
-  input: Record<string, unknown>,
-  establishmentId: string
-): Promise<string> {
-  // Usa admin client per bypassare RLS (le query dei tool non richiedono sessione utente)
-  const supabase = createAdminClient(
+const TOOL_CREATE_BOOKING = {
+  name: "create_booking",
+  description: "Crea la prenotazione dopo aver raccolto nome, telefono, date e ombrellone scelto. Chiedi conferma esplicita al cliente prima di usare questo tool.",
+  input_schema: {
+    type: "object",
+    properties: {
+      guest_name:    { type: "string", description: "Nome e cognome" },
+      guest_phone:   { type: "string", description: "Telefono" },
+      guest_email:   { type: "string", description: "Email (opzionale)" },
+      start_date:    { type: "string", description: "Data inizio (YYYY-MM-DD)" },
+      end_date:      { type: "string", description: "Data fine (YYYY-MM-DD)" },
+      element_id:    { type: "string", description: "ID ombrellone (dalla lista disponibilità)" },
+      sunbeds_count: { type: "number", description: "Numero lettini (default 2)" },
+    },
+    required: ["guest_name", "guest_phone", "start_date", "end_date", "element_id"],
+  },
+};
+
+// ─── Admin Supabase (bypassa RLS) ─────────────────────────────────────────────
+
+function adminSupabase() {
+  return createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
+}
 
-  if (name === "get_availability") {
-    const { start_date, end_date } = input as { start_date: string; end_date: string };
+// ─── Costruisce il contesto completo dello stabilimento ───────────────────────
 
-    // Tutti gli elementi attivi con la loro fila
-    const { data: maps } = await supabase
-      .from("beach_maps")
-      .select("id, name")
-      .eq("establishment_id", establishmentId)
-      .eq("is_active", true);
+async function buildEstablishmentContext(establishmentId: string): Promise<string> {
+  const db = adminSupabase();
+  const lines: string[] = [];
 
-    if (!maps?.length) return "Nessuna mappa configurata.";
+  // Info base
+  const { data: est } = await db
+    .from("establishments")
+    .select("name, description, city, address, phone, email, check_in_time, check_out_time")
+    .eq("id", establishmentId)
+    .single();
 
+  if (!est) return "";
+
+  const today = new Date().toISOString().split("T")[0];
+  lines.push(`STABILIMENTO: ${est.name}`);
+  if (est.city) lines.push(`Città: ${est.city}`);
+  if (est.address) lines.push(`Indirizzo: ${est.address}`);
+  if (est.phone) lines.push(`Telefono: ${est.phone}`);
+  if (est.email) lines.push(`Email: ${est.email}`);
+  if (est.check_in_time) lines.push(`Orari: ${est.check_in_time} - ${est.check_out_time}`);
+  if (est.description) lines.push(`Descrizione: ${est.description}`);
+  lines.push(`Data di oggi: ${today}`);
+
+  // Servizi extra
+  const { data: services } = await db
+    .from("additional_services")
+    .select("name, description, price, is_daily")
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true)
+    .order("sort_order");
+
+  if (services?.length) {
+    lines.push("\nSERVIZI DISPONIBILI:");
+    for (const s of services) {
+      const priceStr = Number(s.price) === 0 ? "gratuito" : `${Number(s.price).toFixed(2)}€${s.is_daily ? "/giorno" : ""}`;
+      lines.push(`- ${s.name}${s.description ? ` (${s.description})` : ""}: ${priceStr}`);
+    }
+  }
+
+  // File e prezzi
+  const { data: maps } = await db
+    .from("beach_maps")
+    .select("id, name")
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true);
+
+  if (maps?.length) {
     const mapIds = maps.map((m) => m.id);
-    const { data: rows } = await supabase
+    const { data: rows } = await db
       .from("map_rows")
-      .select("id, label, row_number, beach_map_id")
+      .select("id, label, row_number")
       .in("beach_map_id", mapIds)
       .order("row_number");
 
-    if (!rows?.length) return "Nessuna fila configurata.";
+    if (rows?.length) {
+      // Recupera tutte le stagioni attive o future
+      const { data: seasons } = await db
+        .from("seasons")
+        .select("id, name, start_date, end_date")
+        .eq("establishment_id", establishmentId)
+        .gte("end_date", today)
+        .order("start_date");
 
-    const rowIds = rows.map((r) => r.id);
-    const { data: elements } = await supabase
-      .from("map_elements")
-      .select("id, label, element_type, row_id")
-      .in("row_id", rowIds)
-      .eq("is_bookable", true);
-
-    if (!elements?.length) return "Nessun elemento prenotabile.";
-
-    // Prenotazioni attive in quel periodo
-    const { data: activeBookings } = await supabase
-      .from("bookings")
-      .select("id")
-      .eq("establishment_id", establishmentId)
-      .in("status", ["confirmed", "checked_in", "pending"])
-      .lte("start_date", end_date)
-      .gte("end_date", start_date);
-
-    const activeIds = (activeBookings || []).map((b) => b.id);
-    const occupiedIds = new Set<string>();
-    if (activeIds.length > 0) {
-      const { data: occupiedItems } = await supabase
-        .from("booking_items")
-        .select("map_element_id")
-        .in("booking_id", activeIds);
-      (occupiedItems || []).forEach((i) => occupiedIds.add(i.map_element_id));
-    }
-
-    // Raggruppa per fila
-    const result: string[] = [];
-    for (const row of rows) {
-      const available = elements.filter(
-        (e) => e.row_id === row.id && !occupiedIds.has(e.id)
-      );
-      if (available.length > 0) {
-        const map = maps.find((m) => m.id === row.beach_map_id);
-        result.push(
-          `${map?.name || "Spiaggia"} - Fila ${row.row_number} (${row.label}): ${available.map((e) => `${e.label} (id:${e.id})`).join(", ")}`
-        );
+      lines.push("\nSTRUTTURA SPIAGGIA E TARIFFE:");
+      for (const row of rows) {
+        let priceInfo = "";
+        if (seasons?.length) {
+          const prices: string[] = [];
+          for (const season of seasons) {
+            const { data: pr } = await db
+              .from("pricing_rules")
+              .select("base_price")
+              .eq("season_id", season.id)
+              .eq("row_id", row.id)
+              .eq("duration", "full_day")
+              .maybeSingle();
+            if (pr?.base_price) {
+              prices.push(`${Number(pr.base_price).toFixed(2)}€/giorno in ${season.name} (${season.start_date} → ${season.end_date})`);
+            }
+          }
+          if (prices.length) priceInfo = ` | Prezzo: ${prices.join("; ")}`;
+        }
+        lines.push(`- Fila ${row.row_number}: ${row.label}${priceInfo}`);
       }
     }
-
-    return result.length
-      ? `Disponibilità dal ${start_date} al ${end_date}:\n${result.join("\n")}`
-      : `Nessun posto disponibile dal ${start_date} al ${end_date}.`;
   }
 
-  if (name === "get_prices") {
-    const { start_date, end_date } = input as { start_date: string; end_date: string };
+  return lines.join("\n");
+}
 
-    const { data: seasons } = await supabase
-      .from("seasons")
-      .select("id, name, start_date, end_date")
-      .eq("establishment_id", establishmentId)
-      .lte("start_date", end_date)
-      .gte("end_date", start_date);
+// ─── Esecuzione tool get_availability ────────────────────────────────────────
 
-    if (!seasons?.length) return "Nessuna stagione/tariffa configurata per questo periodo.";
+async function runGetAvailability(input: Record<string, unknown>, establishmentId: string): Promise<string> {
+  const { start_date, end_date } = input as { start_date: string; end_date: string };
+  const db = adminSupabase();
 
-    const seasonIds = seasons.map((s) => s.id);
-    const { data: pricing } = await supabase
-      .from("pricing_rules")
-      .select("base_price, duration, season_id, row_id, map_rows(row_number, label)")
-      .in("season_id", seasonIds)
-      .eq("duration", "full_day");
+  const { data: maps } = await db
+    .from("beach_maps")
+    .select("id, name")
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true);
 
-    if (!pricing?.length) return "Nessuna tariffa disponibile.";
+  if (!maps?.length) return "Nessuna mappa configurata.";
 
-    const days = Math.max(
-      1,
-      Math.ceil((new Date(end_date).getTime() - new Date(start_date).getTime()) / 86400000)
-    );
+  const mapIds = maps.map((m) => m.id);
+  const { data: rows } = await db
+    .from("map_rows")
+    .select("id, label, row_number, beach_map_id")
+    .in("beach_map_id", mapIds)
+    .order("row_number");
 
-    const lines = pricing.map((p) => {
-      const season = seasons.find((s) => s.id === p.season_id);
-      const rowData = p.map_rows as unknown as { row_number: number; label: string } | { row_number: number; label: string }[] | null;
-      const row = Array.isArray(rowData) ? rowData[0] ?? null : rowData;
-      const rowLabel = row ? `Fila ${row.row_number} (${row.label})` : "Tutte le file";
-      const total = (Number(p.base_price) * days).toFixed(2);
-      return `${rowLabel}: ${Number(p.base_price).toFixed(2)}€/giorno → totale ${total}€ (${season?.name})`;
-    });
+  if (!rows?.length) return "Nessuna fila configurata.";
 
-    return `Tariffe per ${days} giorno/i (${start_date} → ${end_date}):\n${lines.join("\n")}`;
+  const rowIds = rows.map((r) => r.id);
+  const { data: elements } = await db
+    .from("map_elements")
+    .select("id, label, row_id")
+    .in("row_id", rowIds)
+    .eq("is_bookable", true);
+
+  if (!elements?.length) return "Nessun ombrellone prenotabile configurato.";
+
+  // Occupati nel periodo
+  const { data: activeBookings } = await db
+    .from("bookings")
+    .select("id")
+    .eq("establishment_id", establishmentId)
+    .in("status", ["confirmed", "checked_in", "pending"])
+    .lte("start_date", end_date)
+    .gte("end_date", start_date);
+
+  const occupiedIds = new Set<string>();
+  if (activeBookings?.length) {
+    const { data: items } = await db
+      .from("booking_items")
+      .select("map_element_id")
+      .in("booking_id", activeBookings.map((b) => b.id));
+    items?.forEach((i) => occupiedIds.add(i.map_element_id));
   }
 
-  if (name === "create_booking") {
-    const { guest_name, guest_phone, guest_email, start_date, end_date, element_id, sunbeds_count } =
-      input as {
-        guest_name: string;
-        guest_phone: string;
-        guest_email?: string;
-        start_date: string;
-        end_date: string;
-        element_id: string;
-        sunbeds_count?: number;
-      };
-
-    // Trova elemento e fila
-    const { data: el } = await supabase
-      .from("map_elements")
-      .select("id, label, row_id")
-      .eq("id", element_id)
-      .single();
-
-    if (!el) return "Elemento non trovato.";
-
-    const { data: row } = await supabase
-      .from("map_rows")
-      .select("id, row_number, label")
-      .eq("id", el.row_id)
-      .single();
-
-    const days = Math.max(
-      1,
-      Math.ceil((new Date(end_date).getTime() - new Date(start_date).getTime()) / 86400000)
-    );
-
-    // Cerca prezzo per la fila in quel periodo
-    const { data: seasons } = await supabase
-      .from("seasons")
-      .select("id")
-      .eq("establishment_id", establishmentId)
-      .lte("start_date", end_date)
-      .gte("end_date", start_date)
-      .limit(1);
-
-    let dailyPrice = 0;
-    if (seasons?.length && row) {
-      const { data: pr } = await supabase
-        .from("pricing_rules")
-        .select("base_price")
-        .eq("season_id", seasons[0].id)
-        .eq("row_id", row.id)
-        .eq("duration", "full_day")
-        .maybeSingle();
-      dailyPrice = Number(pr?.base_price || 0);
+  const result: string[] = [];
+  for (const row of rows) {
+    const available = elements.filter((e) => e.row_id === row.id && !occupiedIds.has(e.id));
+    if (available.length > 0) {
+      result.push(
+        `Fila ${row.row_number} (${row.label}): ${available.map((e) => `${e.label} [id:${e.id}]`).join(", ")}`
+      );
     }
-
-    const totalPrice = dailyPrice * days;
-
-    // Genera codice prenotazione
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let bookingCode = "BK-";
-    for (let i = 0; i < 5; i++) bookingCode += chars.charAt(Math.floor(Math.random() * chars.length));
-
-    // Usa admin client per bypass RLS
-    const adminSupabase = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
-
-    const { data: booking, error } = await adminSupabase
-      .from("bookings")
-      .insert({
-        establishment_id: establishmentId,
-        booking_code: bookingCode,
-        guest_name,
-        guest_phone: guest_phone || null,
-        guest_email: guest_email || null,
-        start_date,
-        end_date,
-        duration: "full_day",
-        status: "confirmed",
-        payment_method: "onsite",
-        subtotal: totalPrice,
-        total: totalPrice,
-      })
-      .select("id")
-      .single();
-
-    if (error || !booking) return `Errore nella creazione: ${error?.message}`;
-
-    await adminSupabase.from("booking_items").insert({
-      booking_id: booking.id,
-      map_element_id: element_id,
-      num_sunbeds: sunbeds_count || 2,
-      daily_price: dailyPrice,
-    });
-
-    return `Prenotazione creata con successo!\nCodice: ${bookingCode}\nPosto: ${el.label} (${row?.label})\nDate: ${start_date} → ${end_date}\nTotale: ${totalPrice.toFixed(2)}€\nIl cliente mostrerà il codice ${bookingCode} al check-in.`;
   }
 
-  return "Tool non trovato.";
+  return result.length
+    ? `Disponibilità dal ${start_date} al ${end_date}:\n${result.join("\n")}`
+    : `Nessun posto disponibile dal ${start_date} al ${end_date}.`;
+}
+
+// ─── Esecuzione tool create_booking ──────────────────────────────────────────
+
+async function runCreateBooking(input: Record<string, unknown>, establishmentId: string): Promise<string> {
+  const { guest_name, guest_phone, guest_email, start_date, end_date, element_id, sunbeds_count } =
+    input as {
+      guest_name: string; guest_phone: string; guest_email?: string;
+      start_date: string; end_date: string; element_id: string; sunbeds_count?: number;
+    };
+
+  const db = adminSupabase();
+
+  const { data: el } = await db
+    .from("map_elements").select("id, label, row_id").eq("id", element_id).single();
+  if (!el) return "Ombrellone non trovato.";
+
+  const { data: row } = await db
+    .from("map_rows").select("id, row_number, label").eq("id", el.row_id).single();
+
+  const days = Math.max(1, Math.ceil(
+    (new Date(end_date).getTime() - new Date(start_date).getTime()) / 86400000
+  ));
+
+  // Prezzo per la fila nel periodo
+  let dailyPrice = 0;
+  const { data: seasons } = await db
+    .from("seasons").select("id")
+    .eq("establishment_id", establishmentId)
+    .lte("start_date", end_date).gte("end_date", start_date).limit(1);
+
+  if (seasons?.length && row) {
+    const { data: pr } = await db
+      .from("pricing_rules").select("base_price")
+      .eq("season_id", seasons[0].id).eq("row_id", row.id).eq("duration", "full_day")
+      .maybeSingle();
+    dailyPrice = Number(pr?.base_price || 0);
+  }
+
+  const totalPrice = dailyPrice * days;
+
+  // Codice prenotazione
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let bookingCode = "BK-";
+  for (let i = 0; i < 5; i++) bookingCode += chars.charAt(Math.floor(Math.random() * chars.length));
+
+  const { data: booking, error } = await db
+    .from("bookings")
+    .insert({
+      establishment_id: establishmentId,
+      booking_code: bookingCode,
+      guest_name,
+      guest_phone: guest_phone || null,
+      guest_email: guest_email || null,
+      start_date, end_date,
+      duration: "full_day",
+      status: "confirmed",
+      payment_method: "onsite",
+      subtotal: totalPrice,
+      total: totalPrice,
+    })
+    .select("id").single();
+
+  if (error || !booking) return `Errore: ${error?.message}`;
+
+  await db.from("booking_items").insert({
+    booking_id: booking.id,
+    map_element_id: element_id,
+    num_sunbeds: sunbeds_count || 2,
+    daily_price: dailyPrice,
+  });
+
+  return `Prenotazione confermata!\nCodice: ${bookingCode}\nOmbrellone: ${el.label} — ${row?.label}\nDate: ${start_date} → ${end_date}\nTotale: ${totalPrice > 0 ? totalPrice.toFixed(2) + "€" : "da concordare"}\nMostra il codice ${bookingCode} all'arrivo.`;
 }
 
 // ─── Handler principale ───────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return Response.json({ error: "ANTHROPIC_API_KEY non configurata" }, { status: 503 });
-  }
+  if (!apiKey) return Response.json({ error: "ANTHROPIC_API_KEY mancante" }, { status: 503 });
 
   const { messages, establishmentId, role } = await request.json() as {
     messages: { role: "user" | "assistant"; content: string }[];
@@ -296,63 +299,48 @@ export async function POST(request: Request) {
     role: "admin" | "client";
   };
 
-  if (!messages?.length) {
-    return Response.json({ error: "Messaggi mancanti" }, { status: 400 });
+  if (!messages?.length) return Response.json({ error: "Messaggi mancanti" }, { status: 400 });
+
+  // Contesto completo dello stabilimento (servizi, prezzi, orari, telefono, ecc.)
+  const estContext = establishmentId ? await buildEstablishmentContext(establishmentId) : "";
+
+  // Statistiche live per l'admin
+  let adminContext = "";
+  if (role === "admin" && establishmentId) {
+    const today = new Date().toISOString().split("T")[0];
+    const db = adminSupabase();
+    const { count } = await db
+      .from("bookings").select("*", { count: "exact", head: true })
+      .eq("establishment_id", establishmentId)
+      .gte("start_date", today).lte("start_date", today);
+    adminContext = `\nPrenotazioni attive oggi: ${count || 0}.`;
   }
 
-  const supabase = await createClient();
+  const systemPrompt = role === "admin"
+    ? `Sei l'assistente AI per il gestore di questo stabilimento balneare. Rispondi in italiano, conciso e professionale. Niente emoji.\n\n${estContext}${adminContext}`
+    : `Sei l'assistente virtuale di questo stabilimento balneare. Aiuti i clienti a prenotare un ombrellone.
 
-  // Contesto stabilimento
-  let context = "";
-  if (establishmentId) {
-    const { data: est } = await supabase
-      .from("establishments")
-      .select("name, description, city, phone, check_in_time, check_out_time")
-      .eq("id", establishmentId)
-      .single();
+Hai già tutte le informazioni sullo stabilimento qui sotto — non inventare nulla, rispondi solo in base a questi dati.
+Per disponibilità usa get_availability. Per creare la prenotazione usa create_booking.
 
-    if (est) {
-      const today = new Date().toISOString().split("T")[0];
-      context = `Stabilimento: ${est.name} a ${est.city}. Orari: ${est.check_in_time}-${est.check_out_time}. Data di oggi: ${today}.`;
-      if (est.description) context += ` ${est.description}.`;
-    }
-
-    if (role === "admin") {
-      const today = new Date().toISOString().split("T")[0];
-      const { count } = await supabase
-        .from("bookings")
-        .select("*", { count: "exact", head: true })
-        .eq("establishment_id", establishmentId)
-        .gte("start_date", today)
-        .lte("start_date", today);
-      context += ` Prenotazioni oggi: ${count || 0}.`;
-    }
-  }
-
-  const systemPrompt =
-    role === "admin"
-      ? `Sei l'assistente AI di LidoFacile per il gestore. Rispondi in italiano, conciso e professionale. Niente emoji. ${context}`
-      : `Sei l'assistente virtuale dello stabilimento balneare. Il tuo compito è aiutare i clienti a PRENOTARE un ombrellone via chat. Flusso da seguire:
+FLUSSO DI PRENOTAZIONE:
 1. Chiedi le date desiderate
-2. Usa get_availability per verificare disponibilità
-3. Usa get_prices per i prezzi
-4. Proponi i posti disponibili e il prezzo totale
-5. Chiedi nome e telefono
-6. Chiedi conferma esplicita al cliente
-7. Usa create_booking per creare la prenotazione
-8. Mostra il codice di prenotazione
-Rispondi in italiano, senza emoji. ${context}`;
+2. Usa get_availability per verificare la disponibilità
+3. Mostra i posti liberi con il prezzo (ricavalo dalle tariffe qui sotto)
+4. Chiedi nome e telefono del cliente
+5. Riepilogo e chiedi conferma esplicita
+6. Usa create_booking per confermare
+7. Comunica il codice prenotazione
 
-  // Converti messaggi semplici in formato Anthropic
-  const anthropicMessages: AnthropicMessage[] = messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+Rispondi sempre in italiano. Non usare emoji. Non suggerire mai di telefonare o scrivere email per prenotare.
 
-  const tools = role === "client" ? CLIENT_TOOLS : [];
+${estContext}`;
 
-  // Loop tool use
-  let loopMessages = [...anthropicMessages];
+  const tools = role === "client"
+    ? [TOOL_GET_AVAILABILITY, TOOL_CREATE_BOOKING]
+    : [];
+
+  const loopMessages: AnthropicMessage[] = messages.map((m) => ({ role: m.role, content: m.content }));
   const MAX_ROUNDS = 6;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -377,42 +365,36 @@ Rispondi in italiano, senza emoji. ${context}`;
     if (!res.ok) {
       const err = await res.text();
       console.error("Anthropic error:", res.status, err);
-      return Response.json({ error: `Errore API: ${res.status} ${err}` }, { status: 500 });
+      return Response.json({ error: `Errore API: ${res.status}` }, { status: 500 });
     }
 
-    const data = await res.json() as {
-      stop_reason: string;
-      content: ContentBlock[];
-    };
+    const data = await res.json() as { stop_reason: string; content: ContentBlock[] };
 
     if (data.stop_reason === "end_turn" || data.stop_reason !== "tool_use") {
-      const text = (data.content as ContentBlock[])
+      const text = data.content
         .filter((b): b is TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n");
       return Response.json({ response: text });
     }
 
-    // Esegui i tool calls
+    // Esegui tool calls
     const toolResults: ToolResultBlock[] = [];
     for (const block of data.content) {
       if (block.type === "tool_use") {
-        const result = await runTool(block.name, block.input, establishmentId);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: result,
-        });
+        let result: string;
+        if (block.name === "get_availability") result = await runGetAvailability(block.input, establishmentId);
+        else if (block.name === "create_booking") result = await runCreateBooking(block.input, establishmentId);
+        else result = "Tool non riconosciuto.";
+        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }
     }
 
-    // Aggiungi risposta assistant + risultati tool al loop
-    loopMessages = [
-      ...loopMessages,
+    loopMessages.push(
       { role: "assistant", content: data.content },
-      { role: "user", content: toolResults as unknown as ContentBlock[] },
-    ];
+      { role: "user", content: toolResults as unknown as ContentBlock[] }
+    );
   }
 
-  return Response.json({ response: "Mi dispiace, non ho potuto completare l'operazione. Riprova." });
+  return Response.json({ response: "Non ho potuto completare l'operazione. Riprova." });
 }
