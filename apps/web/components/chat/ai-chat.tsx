@@ -62,11 +62,13 @@ export function AIChat({ establishmentId, userRole, establishmentName }: AIChatP
     setLoading(true);
 
     try {
+      // Invia tutta la history: l'AI ha contesto completo per tool calling multi-turn
+      const history = [...messages, { role: "user" as const, content: userMessage }];
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMessage,
+          messages: history,
           establishmentId,
           role: userRole,
         }),
