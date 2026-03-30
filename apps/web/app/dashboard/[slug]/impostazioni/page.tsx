@@ -61,72 +61,99 @@ function AddressAutocomplete({
   onSelect: (result: PlaceResult) => void;
   onChange: (val: string) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const initedRef = useRef(false);
+  // Usiamo ref per evitare di reinizializzare quando cambiano le callback
+  const onSelectRef = useRef(onSelect);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
-  const initAutocomplete = useCallback(() => {
-    if (!inputRef.current || autocompleteRef.current) return;
-    if (typeof window === "undefined" || !window.google?.maps?.places) return;
-
-    const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
-      types: ["establishment", "geocode"],
-      componentRestrictions: { country: "it" },
-      fields: ["address_components", "formatted_address", "geometry", "place_id"],
-    });
-
-    ac.addListener("place_changed", () => {
-      const place = ac.getPlace();
-      if (!place.address_components) return;
-
-      const get = (type: string, short = false) => {
-        const c = place.address_components!.find((c) => c.types.includes(type));
-        return short ? (c?.short_name || "") : (c?.long_name || "");
-      };
-
-      // Indirizzo: via + numero civico
-      const route = get("route");
-      const number = get("street_number");
-      const address = route ? `${route}${number ? ` ${number}` : ""}` : (place.formatted_address || "");
-
-      onSelect({
-        address,
-        city: get("locality") || get("administrative_area_level_3"),
-        province: get("administrative_area_level_2", true),
-        cap: get("postal_code"),
-        latitude: place.geometry?.location?.lat().toString() || "",
-        longitude: place.geometry?.location?.lng().toString() || "",
-        google_place_id: place.place_id || "",
-      });
-    });
-
-    autocompleteRef.current = ac;
-  }, [onSelect]);
-
-  // Carica lo script Google Maps al focus (lazy loading)
-  // Usa il parametro callback= nell'URL per garantire che places sia pronto
-  function handleFocus() {
+  useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
     if (!apiKey) return;
-    if (window.google?.maps?.places) { initAutocomplete(); return; }
-    if (document.getElementById("gm-script")) return;
-    (window as unknown as Record<string, unknown>).__gmPlacesReady = initAutocomplete;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async function doInit() {
+      if (initedRef.current || !containerRef.current) return;
+      initedRef.current = true;
+      try {
+        // Nuova API: PlaceAutocompleteElement (richiesta per account creati dopo marzo 2025)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { PlaceAutocompleteElement } = await (window.google.maps as any).importLibrary("places");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const el = new PlaceAutocompleteElement({ componentRestrictions: { country: "it" } });
+        containerRef.current.appendChild(el);
+
+        el.addEventListener("gmp-select", async (e: Event) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const place = (e as any).placePrediction?.toPlace();
+          if (!place) return;
+          await place.fetchFields({ fields: ["addressComponents", "formattedAddress", "location", "id"] });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const comps: any[] = place.addressComponents || [];
+          const get = (type: string, short = false): string => {
+            const c = comps.find((x) => x.types?.includes(type));
+            return (short ? c?.shortText : c?.longText) || "";
+          };
+          const route = get("route");
+          const num = get("street_number");
+          const address = route ? `${route}${num ? ` ${num}` : ""}` : (place.formattedAddress || "");
+          onChangeRef.current(address);
+          onSelectRef.current({
+            address,
+            city: get("locality") || get("administrative_area_level_3"),
+            province: get("administrative_area_level_2", true),
+            cap: get("postal_code"),
+            latitude: place.location?.lat().toString() || "",
+            longitude: place.location?.lng().toString() || "",
+            google_place_id: place.id || "",
+          });
+        });
+      } catch (err) {
+        console.error("PlaceAutocomplete init failed:", err);
+        initedRef.current = false;
+      }
+    }
+
+    // Se Maps è già caricato, init diretto
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((window.google?.maps as any)?.importLibrary) { doInit(); return; }
+
+    // Se lo script è già in pagina, aspetta che finisca
+    if (document.getElementById("gm-script")) {
+      const iv = setInterval(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((window.google?.maps as any)?.importLibrary) { clearInterval(iv); doInit(); }
+      }, 200);
+      return () => clearInterval(iv);
+    }
+
+    // Carica lo script (nuovo pattern: loading=async, niente callback, niente libraries=)
     const script = document.createElement("script");
     script.id = "gm-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&language=it&callback=__gmPlacesReady`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async&language=it`;
     script.async = true;
     script.defer = true;
+    script.onload = doInit;
     document.head.appendChild(script);
-  }
+  }, []);
 
   return (
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onFocus={handleFocus}
-      placeholder="Es. Via Roma 1, Rimini"
-      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-    />
+    <div className="space-y-1">
+      {/* Input manuale per visualizzare/modificare il valore corrente */}
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Es. Via Roma 1, Rimini"
+        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      />
+      {/* PlaceAutocompleteElement viene montato qui e compila i campi alla selezione */}
+      <div
+        ref={containerRef}
+        className="[&>gmp-placeautocomplete]:w-full [&>gmp-placeautocomplete]:block"
+      />
+    </div>
   );
 }
 
