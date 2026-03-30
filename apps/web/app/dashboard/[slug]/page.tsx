@@ -1,5 +1,4 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AIChat } from "@/components/chat/ai-chat";
 import { Badge } from "@/components/ui/badge";
 import {
   Umbrella,
@@ -318,9 +317,6 @@ export default async function DashboardHome({ params }: PageProps) {
           </Link>
         </Button>
       </div>
-
-      {/* Chat AI flotante per gestori */}
-      <AIChat establishmentId={est.id} userRole="admin" />
     </div>
   );
 }
