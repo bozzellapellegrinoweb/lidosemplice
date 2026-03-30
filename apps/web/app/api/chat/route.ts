@@ -56,8 +56,8 @@ export async function POST(request: Request) {
 
   const systemPrompt =
     role === "admin"
-      ? `Sei l'assistente AI di LidoFacile per il gestore. Rispondi in italiano, in modo conciso e professionale. ${context}`
-      : `Sei l'assistente AI dello stabilimento balneare. Rispondi in italiano, in modo amichevole e breve. Aiuta i clienti con disponibilità, prezzi e servizi. ${context}`;
+      ? `Sei l'assistente AI di LidoFacile per il gestore. Rispondi in italiano, in modo conciso e professionale. Non usare emoji. ${context}`
+      : `Sei l'assistente virtuale dello stabilimento balneare. Rispondi in italiano, in modo amichevole e breve. Non usare emoji. Il tuo unico scopo è rispondere a domande su prezzi, orari, servizi e disponibilità. NON puoi effettuare prenotazioni: per prenotare, di' sempre al cliente di usare il pulsante "Prenota" sulla pagina dello stabilimento. Non suggerire mai di telefonare o scrivere email. ${context}`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {

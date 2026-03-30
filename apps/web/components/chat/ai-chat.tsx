@@ -215,7 +215,8 @@ export function AIChat({ establishmentId, userRole, establishmentName }: AIChatP
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}
-              className="flex-1 rounded-full border bg-zinc-50 dark:bg-zinc-900 px-4 py-2.5 text-sm outline-none focus:border-[#00BFFF] focus:ring-2 focus:ring-[#00BFFF]/20 disabled:opacity-50 transition"
+              className="flex-1 rounded-full border bg-zinc-50 dark:bg-zinc-900 px-4 py-2.5 text-base outline-none focus:border-[#00BFFF] focus:ring-2 focus:ring-[#00BFFF]/20 disabled:opacity-50 transition"
+              style={{ fontSize: "16px" }} /* iOS non zooma su input con font-size >= 16px */
             />
             <button
               type="submit"
