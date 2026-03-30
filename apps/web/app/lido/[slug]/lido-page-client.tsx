@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   MapPin, Clock, Phone, Mail, Umbrella, ArrowRight,
-  Waves, ChevronRight, Calendar, Users, ChevronLeft,
+  ChevronRight, Calendar, Users, ChevronLeft,
   X, UtensilsCrossed,
 } from "lucide-react";
 import { AMENITY_GROUPS, type AmenitiesData } from "@/lib/amenities";
@@ -49,11 +49,113 @@ interface Row {
   row_number: number;
 }
 
+interface BeachMap {
+  id: string;
+  name: string;
+  rows: Row[];
+}
+
 interface Props {
   establishment: Establishment;
   services: Service[];
   rows: Row[];
+  beachMaps?: BeachMap[];
   slug: string;
+}
+
+// ── Tipo mappa inferito dal nome ──────────────────────────────────────────────
+function getMapType(name: string): "spiaggia" | "piscina" | "giardino" {
+  const n = name.toLowerCase();
+  if (n.includes("piscina") || n.includes("pool")) return "piscina";
+  if (n.includes("giardino") || n.includes("prato") || n.includes("garden") || n.includes("parco")) return "giardino";
+  return "spiaggia";
+}
+
+// ── SVG animate per l'header di ogni mappa ────────────────────────────────────
+function WavesSvg() {
+  return (
+    <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="absolute inset-0 h-full w-full opacity-30">
+      <path fill="white">
+        <animate
+          attributeName="d"
+          dur="3s"
+          repeatCount="indefinite"
+          values="
+            M0,20 C30,10 70,30 100,20 C130,10 170,30 200,20 L200,40 L0,40 Z;
+            M0,20 C30,30 70,10 100,20 C130,30 170,10 200,20 L200,40 L0,40 Z;
+            M0,20 C30,10 70,30 100,20 C130,10 170,30 200,20 L200,40 L0,40 Z"
+        />
+      </path>
+    </svg>
+  );
+}
+
+function PoolSvg() {
+  return (
+    <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="absolute inset-0 h-full w-full opacity-25">
+      <ellipse cx="100" cy="25" rx="80" ry="8" fill="white">
+        <animate attributeName="rx" values="80;90;80" dur="4s" repeatCount="indefinite" />
+        <animate attributeName="ry" values="8;5;8" dur="4s" repeatCount="indefinite" />
+      </ellipse>
+      <ellipse cx="60" cy="18" rx="30" ry="4" fill="white">
+        <animate attributeName="rx" values="30;35;30" dur="3s" repeatCount="indefinite" />
+      </ellipse>
+    </svg>
+  );
+}
+
+function GardenSvg() {
+  return (
+    <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="absolute inset-0 h-full w-full opacity-30">
+      {[10,25,40,55,70,85,100,115,130,145,160,175,190].map((x, i) => (
+        <path key={i} d={`M${x},40 Q${x-4},28 ${x},20 Q${x+4},28 ${x},40`} fill="white">
+          <animate
+            attributeName="d"
+            dur={`${1.5 + (i % 3) * 0.5}s`}
+            repeatCount="indefinite"
+            values={`M${x},40 Q${x-4},28 ${x},20 Q${x+4},28 ${x},40;M${x},40 Q${x-6},26 ${x+2},18 Q${x+6},26 ${x},40;M${x},40 Q${x-4},28 ${x},20 Q${x+4},28 ${x},40`}
+          />
+        </path>
+      ))}
+    </svg>
+  );
+}
+
+// ── Header mappa ──────────────────────────────────────────────────────────────
+function MapHeader({ name }: { name: string }) {
+  const type = getMapType(name);
+  const configs = {
+    spiaggia: { bg: "from-sky-400 to-blue-500", label: "MARE", Svg: WavesSvg },
+    piscina:  { bg: "from-cyan-400 to-teal-500", label: "PISCINA", Svg: PoolSvg },
+    giardino: { bg: "from-green-400 to-emerald-500", label: "GIARDINO", Svg: GardenSvg },
+  };
+  const { bg, label, Svg } = configs[type];
+  return (
+    <div className={`relative flex items-center justify-center gap-2 overflow-hidden py-4 text-sm font-bold tracking-widest text-white bg-gradient-to-r ${bg}`}>
+      <Svg />
+      <span className="relative z-10">{label}</span>
+    </div>
+  );
+}
+
+// ── Footer mappa ──────────────────────────────────────────────────────────────
+function MapFooter({ name }: { name: string }) {
+  const type = getMapType(name);
+  if (type === "spiaggia") return (
+    <div className="flex items-center justify-center gap-2 bg-gray-100 py-2.5 text-xs font-semibold uppercase tracking-widest text-gray-400">
+      ↑ Ingresso / Strada
+    </div>
+  );
+  if (type === "piscina") return (
+    <div className="flex items-center justify-center gap-2 bg-cyan-50 py-2.5 text-xs font-semibold uppercase tracking-widest text-cyan-400">
+      ↑ Bordo piscina
+    </div>
+  );
+  return (
+    <div className="flex items-center justify-center gap-2 bg-green-50 py-2.5 text-xs font-semibold uppercase tracking-widest text-green-400">
+      ↑ Ingresso giardino
+    </div>
+  );
 }
 
 // ── Galleria lightbox ────────────────────────────────────────────────────────
@@ -189,7 +291,7 @@ function AmenitiesGrid({ amenities, primary }: { amenities: AmenitiesData; prima
 
 // ── Pagina principale ────────────────────────────────────────────────────────
 
-export default function LidoPageClient({ establishment, services, rows, slug }: Props) {
+export default function LidoPageClient({ establishment, services, rows, beachMaps, slug }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const primary = establishment.primary_color || "#00BFFF";
   const secondary = establishment.secondary_color || "#0B1829";
@@ -351,19 +453,15 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
             </section>
           )}
 
-          {/* La spiaggia */}
-          {rows.length > 0 && (
-            <section>
-              <h2 className="text-2xl font-bold text-gray-900">La nostra spiaggia</h2>
-              <p className="mt-1 text-sm text-gray-500">Vista dall&apos;alto — il mare è in cima</p>
+          {/* Mappe (spiaggia / piscina / giardino) */}
+          {(beachMaps ?? (rows.length > 0 ? [{ id: "default", name: "Spiaggia", rows }] : [])).map((bmap) => (
+            <section key={bmap.id}>
+              <h2 className="text-2xl font-bold text-gray-900">{bmap.name}</h2>
+              <p className="mt-1 text-sm text-gray-500">Vista dall&apos;alto — il {getMapType(bmap.name) === "giardino" ? "giardino" : getMapType(bmap.name) === "piscina" ? "bordo piscina" : "mare"} è in cima</p>
               <div className="mt-4 overflow-hidden rounded-2xl border border-sky-100 shadow-sm">
-                {/* Mare */}
-                <div className="flex items-center justify-center gap-2 py-4 text-sm font-bold tracking-widest text-white" style={{ background: "linear-gradient(135deg, #38bdf8, #0ea5e9)" }}>
-                  <Waves className="h-5 w-5" /> MARE <Waves className="h-5 w-5" />
-                </div>
-                {/* Righe spiaggia */}
+                <MapHeader name={bmap.name} />
                 <div className="bg-amber-50">
-                  {rows.map((row, i) => {
+                  {bmap.rows.map((row, i) => {
                     const isFirst = i === 0;
                     const umbCount = Math.min(row.count, 12);
                     const color = isFirst ? primary : i < 3 ? secondary : "#94a3b8";
@@ -383,33 +481,27 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
                           </div>
                           <span className="text-xs text-gray-400">{row.count} posti</span>
                         </div>
-                        {/* Icone ombrelloni */}
                         {row.count > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1 pl-9">
                             {Array.from({ length: umbCount }).map((_, j) => (
                               <Umbrella key={j} className="h-4 w-4" style={{ color }} />
                             ))}
-                            {row.count > 12 && (
-                              <span className="self-center text-xs text-gray-400">+{row.count - 12}</span>
-                            )}
+                            {row.count > 12 && <span className="self-center text-xs text-gray-400">+{row.count - 12}</span>}
                           </div>
                         )}
                       </div>
                     );
                   })}
                 </div>
-                {/* Ingresso */}
-                <div className="flex items-center justify-center gap-2 bg-gray-100 py-2.5 text-xs font-semibold uppercase tracking-widest text-gray-400">
-                  ↑ Ingresso / Strada
-                </div>
+                <MapFooter name={bmap.name} />
               </div>
               <div className="mt-4 text-center">
                 <Link href={bookingUrl} className="inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white shadow transition hover:opacity-90" style={{ backgroundColor: primary }}>
-                  Scegli il tuo ombrellone <ChevronRight className="h-4 w-4" />
+                  Scegli il tuo posto <ChevronRight className="h-4 w-4" />
                 </Link>
               </div>
             </section>
-          )}
+          ))}
 
           {/* Contatti */}
           {(establishment.address || establishment.phone || establishment.email) && (

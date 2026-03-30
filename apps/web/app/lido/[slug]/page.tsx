@@ -34,17 +34,18 @@ export default async function LidoPage({ params }: PageProps) {
     .eq("is_active", true)
     .order("created_at");
 
-  let rows: { id: string; label: string; count: number; row_number: number }[] = [];
+  // Tutte le mappe attive, ognuna con le proprie righe
+  const beachMaps: { id: string; name: string; rows: { id: string; label: string; count: number; row_number: number }[] }[] = [];
   if (mapsData?.length) {
-    // Usa solo la prima mappa attiva
-    const mapId = mapsData[0].id;
-    const { data: mapRows } = await supabase
-      .from("map_rows")
-      .select("id, label, row_number")
-      .eq("beach_map_id", mapId)
-      .order("row_number");
+    for (const map of mapsData) {
+      const { data: mapRows } = await supabase
+        .from("map_rows")
+        .select("id, label, row_number")
+        .eq("beach_map_id", map.id)
+        .order("row_number");
 
-    if (mapRows) {
+      if (!mapRows?.length) continue;
+
       const rowIds = mapRows.map((r) => r.id);
       const { data: elements } = await supabase
         .from("map_elements")
@@ -52,12 +53,17 @@ export default async function LidoPage({ params }: PageProps) {
         .in("map_row_id", rowIds)
         .eq("is_bookable", true);
 
-      for (const row of mapRows) {
-        const count = (elements || []).filter((e) => e.map_row_id === row.id).length;
-        rows.push({ id: row.id, label: row.label, count, row_number: row.row_number });
-      }
+      const rows = mapRows.map((row) => ({
+        id: row.id,
+        label: row.label,
+        row_number: row.row_number,
+        count: (elements || []).filter((e) => e.map_row_id === row.id).length,
+      }));
+      beachMaps.push({ id: map.id, name: map.name ?? "Spiaggia", rows });
     }
   }
+  // Compat: rows = righe della prima mappa (usato altrove nel componente)
+  const rows = beachMaps[0]?.rows ?? [];
 
   // Structured data
   const jsonLd = {
@@ -91,6 +97,7 @@ export default async function LidoPage({ params }: PageProps) {
         establishment={establishment}
         services={services || []}
         rows={rows}
+        beachMaps={beachMaps}
         slug={slug}
       />
       <AIChat
