@@ -166,7 +166,8 @@ async function runTool(
 
     const lines = pricing.map((p) => {
       const season = seasons.find((s) => s.id === p.season_id);
-      const row = p.map_rows as { row_number: number; label: string } | null;
+      const rowData = p.map_rows as unknown as { row_number: number; label: string } | { row_number: number; label: string }[] | null;
+      const row = Array.isArray(rowData) ? rowData[0] ?? null : rowData;
       const rowLabel = row ? `Fila ${row.row_number} (${row.label})` : "Tutte le file";
       const total = (Number(p.base_price) * days).toFixed(2);
       return `${rowLabel}: ${Number(p.base_price).toFixed(2)}€/giorno → totale ${total}€ (${season?.name})`;
