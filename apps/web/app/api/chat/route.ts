@@ -68,7 +68,12 @@ async function runTool(
   input: Record<string, unknown>,
   establishmentId: string
 ): Promise<string> {
-  const supabase = await createClient();
+  // Usa admin client per bypassare RLS (le query dei tool non richiedono sessione utente)
+  const supabase = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
 
   if (name === "get_availability") {
     const { start_date, end_date } = input as { start_date: string; end_date: string };
