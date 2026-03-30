@@ -6,7 +6,7 @@ import Image from "next/image";
 import {
   MapPin, Clock, Phone, Mail, Umbrella, ArrowRight,
   Waves, ChevronRight, Calendar, Users, ChevronLeft,
-  X,
+  X, UtensilsCrossed,
 } from "lucide-react";
 import { AMENITY_GROUPS, type AmenitiesData } from "@/lib/amenities";
 
@@ -199,6 +199,7 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
 
   const totalUmbrellas = rows.reduce((sum, r) => sum + r.count, 0);
   const bookingUrl = `/lido/${slug}/prenota`;
+  const menuUrl = `/lido/${slug}/menu`;
 
   // Hero: cover_image_url > prima foto galleria > gradiente CSS
   const heroImage = establishment.cover_image_url
@@ -225,10 +226,16 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
               {establishment.name}
             </span>
           </div>
-          <Link href={bookingUrl} className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:opacity-90 active:scale-95" style={{ backgroundColor: primary }}>
-            <Calendar className="h-4 w-4" />
-            Prenota ora
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href={menuUrl} className="flex items-center gap-2 rounded-full border border-white/40 px-4 py-2 text-sm font-semibold transition hover:bg-white/20 active:scale-95" style={{ color: scrolled ? secondary : "white" }}>
+              <UtensilsCrossed className="h-4 w-4" />
+              Bar
+            </Link>
+            <Link href={bookingUrl} className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:opacity-90 active:scale-95" style={{ backgroundColor: primary }}>
+              <Calendar className="h-4 w-4" />
+              Prenota ora
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -477,6 +484,10 @@ export default function LidoPageClient({ establishment, services, rows, slug }: 
                   </Link>
                 </div>
                 <p className="text-center text-xs text-gray-400">Nessuna commissione · Conferma immediata</p>
+                <Link href={menuUrl} className="flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold transition hover:bg-gray-50 active:scale-95" style={{ color: secondary, borderColor: secondary + "40" }}>
+                  <UtensilsCrossed className="h-4 w-4" />
+                  Ordina dal bar
+                </Link>
               </div>
             </div>
 

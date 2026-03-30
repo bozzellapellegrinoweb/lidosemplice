@@ -175,8 +175,8 @@ async function runGetAvailability(input: Record<string, unknown>, establishmentI
   const rowIds = rows.map((r) => r.id);
   const { data: elements } = await db
     .from("map_elements")
-    .select("id, label, row_id")
-    .in("row_id", rowIds)
+    .select("id, label, map_row_id")
+    .in("map_row_id", rowIds)
     .eq("is_bookable", true);
 
   if (!elements?.length) return "Nessun ombrellone prenotabile configurato.";
@@ -201,7 +201,7 @@ async function runGetAvailability(input: Record<string, unknown>, establishmentI
 
   const result: string[] = [];
   for (const row of rows) {
-    const available = elements.filter((e) => e.row_id === row.id && !occupiedIds.has(e.id));
+    const available = elements.filter((e) => e.map_row_id === row.id && !occupiedIds.has(e.id));
     if (available.length > 0) {
       result.push(
         `Fila ${row.row_number} (${row.label}): ${available.map((e) => `${e.label} [id:${e.id}]`).join(", ")}`

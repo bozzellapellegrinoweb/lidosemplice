@@ -37,7 +37,7 @@ interface MapRow {
 
 interface MapElement {
   id: string;
-  row_id: string;
+  map_row_id: string;
   element_type: string;
   label: string;
   max_sunbeds: number;
@@ -147,13 +147,13 @@ export default function BookingPage() {
         const rowIds = mapRows.map((r) => r.id);
         const { data: elData } = await supabase
           .from("map_elements")
-          .select("id, row_id, element_type, label, max_sunbeds, is_premium")
-          .in("row_id", rowIds).eq("is_bookable", true).order("x");
+          .select("id, map_row_id, element_type, label, max_sunbeds, is_premium")
+          .in("map_row_id", rowIds).eq("is_bookable", true).order("position_x");
 
         setRows(mapRows.map((r) => ({
           ...r,
           mapName: mapsData.find((m) => m.id === r.beach_map_id)?.name || "",
-          elements: (elData || []).filter((e) => e.row_id === r.id),
+          elements: (elData || []).filter((e) => e.map_row_id === r.id),
         })));
       }
     }
@@ -402,11 +402,11 @@ export default function BookingPage() {
               <Calendar className="mr-1 inline h-4 w-4" />
               Data arrivo
             </label>
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-44" />
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-44 bg-white" />
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700">Data partenza</label>
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate} className="w-44" />
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate} className="w-44 bg-white" />
           </div>
           {days > 1 && (
             <span className="mb-1 rounded-full px-3 py-1 text-sm font-medium text-white" style={{ backgroundColor: primary }}>
