@@ -37,13 +37,13 @@ const TOOL_CREATE_BOOKING = {
     properties: {
       guest_name:    { type: "string", description: "Nome e cognome" },
       guest_phone:   { type: "string", description: "Telefono" },
-      guest_email:   { type: "string", description: "Email (opzionale)" },
+      guest_email:   { type: "string", description: "Email del cliente (obbligatoria per la conferma)" },
       start_date:    { type: "string", description: "Data inizio (YYYY-MM-DD)" },
       end_date:      { type: "string", description: "Data fine (YYYY-MM-DD)" },
       element_id:    { type: "string", description: "ID ombrellone (dalla lista disponibilità)" },
       sunbeds_count: { type: "number", description: "Numero lettini (default 2)" },
     },
-    required: ["guest_name", "guest_phone", "start_date", "end_date", "element_id"],
+    required: ["guest_name", "guest_phone", "guest_email", "start_date", "end_date", "element_id"],
   },
 };
 
@@ -85,7 +85,7 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
   // Servizi extra
   const { data: services } = await db
     .from("additional_services")
-    .select("name, description, price, is_daily")
+    .select("name, description, price_cents, is_daily")
     .eq("establishment_id", establishmentId)
     .eq("is_active", true)
     .order("sort_order");
@@ -93,7 +93,8 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
   if (services?.length) {
     lines.push("\nSERVIZI DISPONIBILI:");
     for (const s of services) {
-      const priceStr = Number(s.price) === 0 ? "gratuito" : `${Number(s.price).toFixed(2)}€${s.is_daily ? "/giorno" : ""}`;
+      const euros = (s.price_cents || 0) / 100;
+      const priceStr = euros === 0 ? "gratuito" : `${euros.toFixed(2)}€${s.is_daily ? "/giorno" : ""}`;
       lines.push(`- ${s.name}${s.description ? ` (${s.description})` : ""}: ${priceStr}`);
     }
   }
@@ -106,23 +107,23 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
     .eq("is_active", true);
 
   if (maps?.length) {
-    const mapIds = maps.map((m) => m.id);
-    const { data: rows } = await db
-      .from("map_rows")
-      .select("id, label, row_number")
-      .in("beach_map_id", mapIds)
-      .order("row_number");
+    const { data: seasons } = await db
+      .from("seasons")
+      .select("id, name, start_date, end_date")
+      .eq("establishment_id", establishmentId)
+      .gte("end_date", today)
+      .order("start_date");
 
-    if (rows?.length) {
-      // Recupera tutte le stagioni attive o future
-      const { data: seasons } = await db
-        .from("seasons")
-        .select("id, name, start_date, end_date")
-        .eq("establishment_id", establishmentId)
-        .gte("end_date", today)
-        .order("start_date");
+    lines.push("\nSTRUTTURA E TARIFFE:");
+    for (const map of maps) {
+      const { data: rows } = await db
+        .from("map_rows")
+        .select("id, label, row_number")
+        .eq("beach_map_id", map.id)
+        .order("row_number");
 
-      lines.push("\nSTRUTTURA SPIAGGIA E TARIFFE:");
+      if (!rows?.length) continue;
+      lines.push(`\n[${map.name}]`);
       for (const row of rows) {
         let priceInfo = "";
         if (seasons?.length) {
@@ -136,12 +137,12 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
               .eq("duration", "full_day")
               .maybeSingle();
             if (pr?.base_price) {
-              prices.push(`${Number(pr.base_price).toFixed(2)}€/giorno in ${season.name} (${season.start_date} → ${season.end_date})`);
+              prices.push(`${Number(pr.base_price).toFixed(2)}€/giorno in ${season.name}`);
             }
           }
-          if (prices.length) priceInfo = ` | Prezzo: ${prices.join("; ")}`;
+          if (prices.length) priceInfo = ` | ${prices.join("; ")}`;
         }
-        lines.push(`- Fila ${row.row_number}: ${row.label}${priceInfo}`);
+        lines.push(`  - Fila ${row.row_number}: ${row.label}${priceInfo}`);
       }
     }
   }
@@ -200,12 +201,17 @@ async function runGetAvailability(input: Record<string, unknown>, establishmentI
   }
 
   const result: string[] = [];
-  for (const row of rows) {
-    const available = elements.filter((e) => e.map_row_id === row.id && !occupiedIds.has(e.id));
-    if (available.length > 0) {
-      result.push(
-        `Fila ${row.row_number} (${row.label}): ${available.map((e) => `${e.label} [id:${e.id}]`).join(", ")}`
-      );
+  for (const map of maps) {
+    const mapRows = rows.filter((r) => r.beach_map_id === map.id);
+    const mapLines: string[] = [];
+    for (const row of mapRows) {
+      const available = elements.filter((e) => e.map_row_id === row.id && !occupiedIds.has(e.id));
+      if (available.length > 0) {
+        mapLines.push(`  Fila ${row.row_number} (${row.label}): ${available.map((e) => `${e.label} [id:${e.id}]`).join(", ")}`);
+      }
+    }
+    if (mapLines.length) {
+      result.push(`[${map.name}]\n${mapLines.join("\n")}`);
     }
   }
 
@@ -226,11 +232,11 @@ async function runCreateBooking(input: Record<string, unknown>, establishmentId:
   const db = adminSupabase();
 
   const { data: el } = await db
-    .from("map_elements").select("id, label, row_id").eq("id", element_id).single();
+    .from("map_elements").select("id, label, map_row_id").eq("id", element_id).single();
   if (!el) return "Ombrellone non trovato.";
 
   const { data: row } = await db
-    .from("map_rows").select("id, row_number, label").eq("id", el.row_id).single();
+    .from("map_rows").select("id, row_number, label").eq("id", el.map_row_id).single();
 
   const days = Math.max(1, Math.ceil(
     (new Date(end_date).getTime() - new Date(start_date).getTime()) / 86400000
@@ -284,7 +290,8 @@ async function runCreateBooking(input: Record<string, unknown>, establishmentId:
     daily_price: dailyPrice,
   });
 
-  return `Prenotazione confermata!\nCodice: ${bookingCode}\nOmbrellone: ${el.label} — ${row?.label}\nDate: ${start_date} → ${end_date}\nTotale: ${totalPrice > 0 ? totalPrice.toFixed(2) + "€" : "da concordare"}\nMostra il codice ${bookingCode} all'arrivo.`;
+  const emailNote = guest_email ? `Una email di conferma con il QR code verrà inviata a ${guest_email}.` : "";
+  return `Prenotazione confermata!\nCodice: ${bookingCode}\nOmbrellone: ${el.label} — ${row?.label}\nDate: ${start_date} → ${end_date}\nTotale: ${totalPrice > 0 ? totalPrice.toFixed(2) + "€" : "da concordare"}\n${emailNote}\nMostra il codice ${bookingCode} allo staff all'arrivo.`;
 }
 
 // ─── Handler principale ───────────────────────────────────────────────────────
@@ -327,10 +334,10 @@ FLUSSO DI PRENOTAZIONE:
 1. Chiedi le date desiderate
 2. Usa get_availability per verificare la disponibilità
 3. Mostra i posti liberi con il prezzo (ricavalo dalle tariffe qui sotto)
-4. Chiedi nome e telefono del cliente
+4. Chiedi nome, telefono ed EMAIL del cliente (tutti e tre obbligatori)
 5. Riepilogo e chiedi conferma esplicita
-6. Usa create_booking per confermare
-7. Comunica il codice prenotazione
+6. Usa create_booking per confermare (passa sempre guest_email)
+7. Comunica il codice prenotazione e di che il QR code arriverà via email
 
 Rispondi sempre in italiano. Non usare emoji. Non suggerire mai di telefonare o scrivere email per prenotare.
 
