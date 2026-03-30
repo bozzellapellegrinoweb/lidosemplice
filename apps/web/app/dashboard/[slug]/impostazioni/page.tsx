@@ -73,16 +73,16 @@ function AddressAutocomplete({
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
     if (!apiKey) return;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async function doInit() {
       if (initedRef.current || !containerRef.current) return;
       initedRef.current = true;
       try {
-        // Nuova API: PlaceAutocompleteElement (richiesta per account creati dopo marzo 2025)
+        // PlaceAutocompleteElement è in google.maps.places (libraries=places)
+        // È la versione nuova, non deprecated, per account post-marzo 2025
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { PlaceAutocompleteElement } = await (window.google.maps as any).importLibrary("places");
+        const PAE = (window.google.maps.places as any).PlaceAutocompleteElement;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const el = new PlaceAutocompleteElement({ componentRestrictions: { country: "it" } });
+        const el = new PAE({ componentRestrictions: { country: "it" } });
         containerRef.current.appendChild(el);
 
         el.addEventListener("gmp-select", async (e: Event) => {
@@ -116,26 +116,24 @@ function AddressAutocomplete({
       }
     }
 
-    // Se Maps è già caricato, init diretto
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((window.google?.maps as any)?.importLibrary) { doInit(); return; }
+    // Se Places è già caricato, init diretto
+    if (window.google?.maps?.places) { doInit(); return; }
 
     // Se lo script è già in pagina, aspetta che finisca
     if (document.getElementById("gm-script")) {
       const iv = setInterval(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((window.google?.maps as any)?.importLibrary) { clearInterval(iv); doInit(); }
+        if (window.google?.maps?.places) { clearInterval(iv); doInit(); }
       }, 200);
       return () => clearInterval(iv);
     }
 
-    // Carica lo script (nuovo pattern: loading=async, niente callback, niente libraries=)
+    // Carica lo script con libraries=places e callback per garantire che places sia pronto
+    (window as unknown as Record<string, unknown>).__gmPlacesReady = doInit;
     const script = document.createElement("script");
     script.id = "gm-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async&language=it`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&language=it&callback=__gmPlacesReady`;
     script.async = true;
     script.defer = true;
-    script.onload = doInit;
     document.head.appendChild(script);
   }, []);
 
