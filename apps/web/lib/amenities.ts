@@ -179,4 +179,4 @@ export const AMENITY_GROUPS = [
       { key: "boat_dock",        emoji: "⚓",  label: "Pontile/Approdo" },
     ],
   },
-] as const;
+];
