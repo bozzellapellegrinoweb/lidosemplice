@@ -64,6 +64,14 @@ async function beepOnce(type: "bar" | "booking") {
   } catch {}
 }
 
+// Loop di allerta: suona ogni 2.5s finché non si chiama stop()
+function startAlertLoop(type: "bar" | "booking"): () => void {
+  let stopped = false;
+  beepOnce(type);
+  const interval = setInterval(() => { if (!stopped) beepOnce(type); }, 2500);
+  return () => { stopped = true; clearInterval(interval); };
+}
+
 // ── Tipi ─────────────────────────────────────────────────────────────────────
 
 interface Toast {
@@ -71,6 +79,7 @@ interface Toast {
   type: "bar" | "booking";
   message: string;
   href: string;
+  stopSound: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,18 +118,28 @@ export function GlobalNotifications({ establishmentId, slug }: {
     };
   }, []);
 
-  const addToast = useCallback((toast: Omit<Toast, "id">) => {
+  const removeToast = useCallback((id: string) => {
     if (!mountedRef.current) return;
-    const id = crypto.randomUUID();
-    setToasts((prev) => [...prev.slice(-3), { ...toast, id }]);
-    if (soundOnRef.current) beepOnce(toast.type);
-    setTimeout(() => {
-      if (mountedRef.current) setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 8000);
+    setToasts((prev) => {
+      const toast = prev.find((t) => t.id === id);
+      if (toast) toast.stopSound();
+      return prev.filter((t) => t.id !== id);
+    });
   }, []);
 
-  const removeToast = useCallback((id: string) => {
-    if (mountedRef.current) setToasts((prev) => prev.filter((t) => t.id !== id));
+  const addToast = useCallback((toast: Omit<Toast, "id" | "stopSound">) => {
+    if (!mountedRef.current) return;
+    const id = crypto.randomUUID();
+    const stopSound = soundOnRef.current ? startAlertLoop(toast.type) : () => {};
+    setToasts((prev) => [...prev.slice(-3), { ...toast, id, stopSound }]);
+    // Nessun auto-dismiss: il toast resta finché l'utente non lo chiude
+  }, []);
+
+  // Ferma tutti i suoni quando si smonta (es. logout)
+  useEffect(() => {
+    return () => {
+      setToasts((prev) => { prev.forEach((t) => t.stopSound()); return []; });
+    };
   }, []);
 
   // ── Polling ordini bar ────────────────────────────────────────────────────
