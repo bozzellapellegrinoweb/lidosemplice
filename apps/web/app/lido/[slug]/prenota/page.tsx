@@ -181,21 +181,13 @@ export default function BookingPage() {
 
   async function loadAvailability() {
     if (!est) return;
-    const supabase = createClient();
-    const { data: bookings } = await supabase
-      .from("bookings")
-      .select("id")
-      .eq("establishment_id", est.id)
-      .lte("start_date", endDate).gte("end_date", startDate)
-      .in("status", ["confirmed", "checked_in", "pending"]);
-
-    const occupied = new Set<string>();
-    if (bookings?.length) {
-      const { data: items } = await supabase
-        .from("booking_items").select("map_element_id")
-        .in("booking_id", bookings.map((b) => b.id));
-      items?.forEach((i) => occupied.add(i.map_element_id));
-    }
+    // Usa API route con admin client per bypassare RLS su bookings
+    const res = await fetch(
+      `/api/availability?establishment_id=${est.id}&start_date=${startDate}&end_date=${endDate}`
+    );
+    if (!res.ok) return;
+    const { occupiedIds: ids } = await res.json() as { occupiedIds: string[] };
+    const occupied = new Set<string>(ids);
     setOccupiedIds(occupied);
     setSelectedItems((prev) => prev.filter((item) => !occupied.has(item.id)));
   }
@@ -341,7 +333,7 @@ export default function BookingPage() {
 
   // ── Pagina principale ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#f5f0e8]">
 
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b shadow-sm">
@@ -510,7 +502,7 @@ export default function BookingPage() {
                     <h3 className="mb-3 text-sm font-semibold text-gray-700">Numero lettini</h3>
                     <div className="space-y-2">
                       {selectedItems.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2">
+                        <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f5f0e8] px-3 py-2">
                           <span className="text-sm font-medium text-gray-800">
                             {ELEMENT_LABELS[item.elementType] || "Ombrellone"} {item.label}
                             <span className="ml-1.5 text-xs text-gray-400">{item.rowLabel}</span>
@@ -655,7 +647,7 @@ export default function BookingPage() {
                 ) : (
                   <>
                     {startDate && endDate && (
-                      <div className="flex items-center gap-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-1.5 rounded-lg bg-[#f5f0e8] px-3 py-2 text-xs text-gray-500">
                         <Calendar className="h-3.5 w-3.5" />
                         {startDate} → {endDate} · {days} {days === 1 ? "giorno" : "giorni"}
                       </div>
