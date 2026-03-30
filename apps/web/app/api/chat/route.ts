@@ -66,7 +66,7 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
   // Info base
   const { data: est } = await db
     .from("establishments")
-    .select("name, description, city, address, phone, email, check_in_time, check_out_time")
+    .select("name, description, city, address, phone, email, check_in_time, check_out_time, amenities")
     .eq("id", establishmentId)
     .single();
 
@@ -81,6 +81,34 @@ async function buildEstablishmentContext(establishmentId: string): Promise<strin
   if (est.check_in_time) lines.push(`Orari: ${est.check_in_time} - ${est.check_out_time}`);
   if (est.description) lines.push(`Descrizione: ${est.description}`);
   lines.push(`Data di oggi: ${today}`);
+
+  // Amenities / caratteristiche
+  if (est.amenities && typeof est.amenities === "object") {
+    const a = est.amenities as Record<string, boolean | number | null>;
+    const yesItems: string[] = [];
+    const labels: Record<string, string> = {
+      bar: "bar", restaurant: "ristorante", self_service: "self-service",
+      showers_hot: "docce calde", showers_cold: "docce fredde",
+      changing_rooms: "spogliatoi", cabins: "cabine", lockers: "armadietti",
+      toilets: "servizi igienici", infirmary: "primo soccorso",
+      wifi: "Wi-Fi", tv: "TV",
+      disabled_access: "accesso disabili", disabled_parking: "parcheggio disabili", walkways: "passerelle disabili",
+      animals_small: "cani piccola taglia ammessi", animals_large: "cani grande taglia ammessi",
+      animals_leash: "guinzaglio obbligatorio", animals_area: "area animali dedicata",
+      parking_free: "parcheggio gratuito", parking_paid: "parcheggio a pagamento",
+      parking_camper: "parcheggio camper",
+      beach_volleyball: "beach volley", tennis: "tennis", football: "calcio",
+      basketball: "basket", canoe: "canoa", pedalo: "pedalò",
+      windsurf: "windsurf", kitesurfing: "kitesurf", water_scooter: "moto d'acqua",
+      snorkeling: "snorkeling", diving: "immersioni", stand_up_paddle: "stand up paddle",
+      playground: "parco giochi", animation: "animazione", fitness: "area fitness",
+    };
+    for (const [key, label] of Object.entries(labels)) {
+      if (a[key] === true) yesItems.push(label);
+    }
+    if (a.parking_spots && Number(a.parking_spots) > 0) yesItems.push(`${a.parking_spots} posti auto`);
+    if (yesItems.length) lines.push(`\nCARATTERISTICHE: ${yesItems.join(", ")}`);
+  }
 
   // Servizi extra
   const { data: services } = await db
@@ -307,10 +335,11 @@ export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return Response.json({ error: "ANTHROPIC_API_KEY mancante" }, { status: 503 });
 
-  const { messages, establishmentId, role } = await request.json() as {
+  const { messages, establishmentId, role, slug } = await request.json() as {
     messages: { role: "user" | "assistant"; content: string }[];
     establishmentId: string;
     role: "admin" | "client";
+    slug?: string;
   };
 
   if (!messages?.length) return Response.json({ error: "Messaggi mancanti" }, { status: 400 });
@@ -331,27 +360,25 @@ export async function POST(request: Request) {
   }
 
   const systemPrompt = role === "admin"
-    ? `Sei l'assistente AI per il gestore di questo stabilimento balneare. Rispondi in italiano, conciso e professionale. Niente emoji.\n\n${estContext}${adminContext}`
-    : `Sei l'assistente virtuale di questo stabilimento balneare. Aiuti i clienti a prenotare un ombrellone.
+    ? `Sei l'assistente AI per il gestore di questo stabilimento balneare. Rispondi in italiano, conciso e professionale. Niente emoji. Niente asterischi o markdown.\n\n${estContext}${adminContext}`
+    : `Sei l'assistente virtuale di questo stabilimento balneare. Rispondi in italiano, in modo cordiale e chiaro.
 
-Hai già tutte le informazioni sullo stabilimento qui sotto — non inventare nulla, rispondi solo in base a questi dati.
-Per disponibilità usa get_availability. Per creare la prenotazione usa create_booking.
+REGOLE DI FORMATTAZIONE:
+- Non usare asterischi o markdown
+- Per elenchi usa il trattino ( - ) a inizio riga
+- Usa solo testo semplice con ritorni a capo
 
-FLUSSO DI PRENOTAZIONE:
-1. Chiedi le date desiderate
-2. Usa get_availability per verificare la disponibilità
-3. Mostra i posti liberi con il prezzo (ricavalo dalle tariffe qui sotto)
-4. Chiedi nome, telefono ed EMAIL del cliente (tutti e tre obbligatori)
-5. Riepilogo e chiedi conferma esplicita
-6. Usa create_booking per confermare (passa sempre guest_email)
-7. Comunica il codice prenotazione e di che il QR code arriverà via email
+COSA PUOI FARE:
+- Rispondere a domande sullo stabilimento (servizi, prezzi, orari, parcheggio, animali, sport, accessibilità, ecc.)
+- Verificare la disponibilità ombrelloni con get_availability
+- Quando l'utente vuole prenotare: dopo aver mostrato disponibilità e prezzi, includi nella risposta il token [PRENOTA:DATA_INIZIO:DATA_FINE] usando le date discusse (formato YYYY-MM-DD). Il sistema mostrerà automaticamente un pulsante per prenotare.
 
-Rispondi sempre in italiano. Non usare emoji. Non suggerire mai di telefonare o scrivere email per prenotare.
+IMPORTANTE: Non inventare nulla. Rispondi solo in base ai dati qui sotto.
 
 ${estContext}`;
 
   const tools = role === "client"
-    ? [TOOL_GET_AVAILABILITY, TOOL_CREATE_BOOKING]
+    ? [TOOL_GET_AVAILABILITY]
     : [];
 
   const loopMessages: AnthropicMessage[] = messages.map((m) => ({ role: m.role, content: m.content }));
@@ -385,11 +412,20 @@ ${estContext}`;
     const data = await res.json() as { stop_reason: string; content: ContentBlock[] };
 
     if (data.stop_reason === "end_turn" || data.stop_reason !== "tool_use") {
-      const text = data.content
+      let text = data.content
         .filter((b): b is TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n");
-      return Response.json({ response: text });
+
+      // Estrai token [PRENOTA:start:end] e crea bookingUrl
+      let bookingUrl: string | null = null;
+      const tokenMatch = text.match(/\[PRENOTA:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})\]/);
+      if (tokenMatch && slug) {
+        bookingUrl = `/lido/${slug}/prenota?start=${tokenMatch[1]}&end=${tokenMatch[2]}`;
+        text = text.replace(tokenMatch[0], "").trim();
+      }
+
+      return Response.json({ response: text, ...(bookingUrl ? { bookingUrl } : {}) });
     }
 
     // Esegui tool calls
@@ -398,7 +434,6 @@ ${estContext}`;
       if (block.type === "tool_use") {
         let result: string;
         if (block.name === "get_availability") result = await runGetAvailability(block.input, establishmentId);
-        else if (block.name === "create_booking") result = await runCreateBooking(block.input, establishmentId);
         else result = "Tool non riconosciuto.";
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }

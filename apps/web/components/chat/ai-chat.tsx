@@ -1,20 +1,23 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { MessageCircle, Send, X, Bot, User, ArrowLeft } from "lucide-react";
+import { MessageCircle, Send, X, Bot, User, ArrowLeft, CalendarCheck } from "lucide-react";
+import Link from "next/link";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  bookingUrl?: string;
 }
 
 interface AIChatProps {
   establishmentId: string;
   userRole: "admin" | "client";
   establishmentName?: string;
+  slug?: string;
 }
 
-export function AIChat({ establishmentId, userRole, establishmentName }: AIChatProps) {
+export function AIChat({ establishmentId, userRole, establishmentName, slug }: AIChatProps) {
   const welcomeMessage =
     userRole === "admin"
       ? "Ciao! Sono il tuo assistente AI. Chiedimi qualsiasi cosa sullo stabilimento: prenotazioni, incassi, occupazione..."
@@ -71,6 +74,7 @@ export function AIChat({ establishmentId, userRole, establishmentName }: AIChatP
           messages: history,
           establishmentId,
           role: userRole,
+          slug,
         }),
       });
 
@@ -82,7 +86,11 @@ export function AIChat({ establishmentId, userRole, establishmentName }: AIChatP
           { role: "assistant", content: "Mi dispiace, si è verificato un errore. Riprova tra qualche istante." },
         ]);
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: data.response,
+          bookingUrl: data.bookingUrl,
+        }]);
       }
     } catch {
       setMessages((prev) => [
@@ -168,14 +176,25 @@ export function AIChat({ establishmentId, userRole, establishmentName }: AIChatP
                   <Bot className="h-4 w-4 text-[#00BFFF]" />
                 </div>
               )}
-              <div
-                className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "rounded-br-sm bg-[#0B1829] text-white"
-                    : "rounded-bl-sm bg-zinc-100 dark:bg-zinc-800 text-foreground"
-                }`}
-              >
-                {msg.content}
+              <div className={`max-w-[78%] ${msg.role === "user" ? "" : "space-y-2"}`}>
+                <div
+                  className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                    msg.role === "user"
+                      ? "rounded-br-sm bg-[#0B1829] text-white"
+                      : "rounded-bl-sm bg-zinc-100 dark:bg-zinc-800 text-foreground"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+                {msg.bookingUrl && (
+                  <Link
+                    href={msg.bookingUrl}
+                    className="flex items-center gap-2 rounded-xl bg-[#0B1829] px-4 py-2.5 text-sm font-semibold text-white shadow transition hover:opacity-90 active:scale-95"
+                  >
+                    <CalendarCheck className="h-4 w-4 shrink-0" />
+                    Prenota ora — scegli il tuo ombrellone
+                  </Link>
+                )}
               </div>
               {msg.role === "user" && (
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 mb-0.5">

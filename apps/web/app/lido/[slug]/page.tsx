@@ -104,6 +104,7 @@ export default async function LidoPage({ params }: PageProps) {
         establishmentId={establishment.id}
         userRole="client"
         establishmentName={establishment.name}
+        slug={slug}
       />
     </>
   );

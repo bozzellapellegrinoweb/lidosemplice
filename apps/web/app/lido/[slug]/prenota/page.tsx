@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -112,8 +112,9 @@ export default function BookingPage() {
   const [occupiedIds, setOccupiedIds] = useState<Set<string>>(new Set());
 
   const [step, setStep] = useState(1);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const searchParams = useSearchParams();
+  const [startDate, setStartDate] = useState(searchParams.get("start") ?? "");
+  const [endDate, setEndDate] = useState(searchParams.get("end") ?? "");
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [serviceQtys, setServiceQtys] = useState<Record<string, number>>({});
   const [guestName, setGuestName] = useState("");
