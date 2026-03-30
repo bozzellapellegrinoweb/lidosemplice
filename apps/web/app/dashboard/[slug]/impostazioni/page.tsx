@@ -1,25 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Save,
-  Building2,
-  Clock,
-  Palette,
-  CreditCard,
-  Globe,
-  ExternalLink,
-  Loader2,
-  Check,
-  MapPin,
-  Copy,
-  CheckCircle2,
+  Save, Building2, Clock, Palette, CreditCard, Globe, ExternalLink,
+  Loader2, Check, MapPin, Copy, CheckCircle2, Image as ImageIcon,
+  Upload, X, Star, Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { AMENITY_GROUPS, DEFAULT_AMENITIES, type AmenitiesData } from "@/lib/amenities";
 
 interface EstablishmentSettings {
   id: string;
@@ -42,6 +34,96 @@ interface EstablishmentSettings {
   google_place_id: string;
   latitude: string;
   longitude: string;
+  logo_url: string;
+  cover_image_url: string;
+  gallery_photo_urls: string[];
+  amenities: AmenitiesData;
+}
+
+// ── Upload helper ─────────────────────────────────────────────────────────────
+
+async function uploadPhoto(
+  file: File,
+  establishmentId: string,
+  filename: string
+): Promise<string | null> {
+  const supabase = createClient();
+  const path = `${establishmentId}/${filename}`;
+  const { error } = await supabase.storage
+    .from("establishment-photos")
+    .upload(path, file, { upsert: true, contentType: file.type });
+  if (error) { console.error("Upload error:", error); return null; }
+  const { data } = supabase.storage.from("establishment-photos").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// ── Single photo upload ───────────────────────────────────────────────────────
+
+function SinglePhotoUpload({
+  label, hint, value, onChange, fieldName,
+}: {
+  label: string; hint: string; value: string; onChange: (url: string) => void; fieldName: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFile(file: File, estId: string) {
+    setUploading(true);
+    const ext = file.name.split(".").pop() || "jpg";
+    const url = await uploadPhoto(file, estId, `${fieldName}-${Date.now()}.${ext}`);
+    if (url) onChange(url);
+    setUploading(false);
+  }
+
+  return (
+    <div>
+      <label className="mb-1.5 block text-sm font-medium">{label}</label>
+      <p className="mb-2 text-xs text-muted-foreground">{hint}</p>
+      <div className="flex items-start gap-3">
+        {value ? (
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={value} alt={label} className={`rounded-lg object-cover border ${fieldName === "logo" ? "h-16 w-16" : "h-24 w-40"}`} />
+            <button
+              onClick={() => onChange("")}
+              className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <div className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed bg-muted/50 ${fieldName === "logo" ? "h-16 w-16" : "h-24 w-40"}`}>
+            <ImageIcon className="h-5 w-5 text-muted-foreground" />
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={uploading}
+            onClick={() => inputRef.current?.click()}
+          >
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {value ? "Cambia" : "Carica"}
+          </Button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            // We need the establishment ID — passed via data attribute trick
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              const estId = (e.target as HTMLInputElement).dataset.estid || "";
+              if (file && estId) await handleFile(file, estId);
+              e.target.value = "";
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ImpostazioniPage() {
@@ -54,13 +136,15 @@ export default function ImpostazioniPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [galleryUploading, setGalleryUploading] = useState(false);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function load() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("establishments")
-        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude")
+        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude, logo_url, cover_image_url, gallery_photo_urls, amenities")
         .eq("slug", slug)
         .single();
 
@@ -86,6 +170,10 @@ export default function ImpostazioniPage() {
           google_place_id: data.google_place_id || "",
           latitude: data.latitude?.toString() || "",
           longitude: data.longitude?.toString() || "",
+          logo_url: data.logo_url || "",
+          cover_image_url: data.cover_image_url || "",
+          gallery_photo_urls: data.gallery_photo_urls || [],
+          amenities: { ...DEFAULT_AMENITIES, ...(data.amenities || {}) },
         });
       }
       setLoading(false);
@@ -93,9 +181,18 @@ export default function ImpostazioniPage() {
     load();
   }, [slug]);
 
-  function updateField(field: keyof EstablishmentSettings, value: string) {
+  function updateField(field: keyof EstablishmentSettings, value: string | boolean | string[]) {
     if (!settings) return;
     setSettings({ ...settings, [field]: value });
+    setSaved(false);
+  }
+
+  function updateAmenity(key: string, value: boolean | number | null) {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      amenities: { ...settings.amenities, [key]: value },
+    });
     setSaved(false);
   }
 
@@ -126,6 +223,10 @@ export default function ImpostazioniPage() {
         google_place_id: settings.google_place_id || null,
         latitude: settings.latitude ? parseFloat(settings.latitude) : null,
         longitude: settings.longitude ? parseFloat(settings.longitude) : null,
+        logo_url: settings.logo_url || null,
+        cover_image_url: settings.cover_image_url || null,
+        gallery_photo_urls: settings.gallery_photo_urls,
+        amenities: settings.amenities,
       })
       .eq("id", settings.id);
 
@@ -136,6 +237,32 @@ export default function ImpostazioniPage() {
       setTimeout(() => setSaved(false), 3000);
     }
     setSaving(false);
+  }
+
+  async function handleGalleryUpload(files: FileList) {
+    if (!settings) return;
+    setGalleryUploading(true);
+    const newUrls: string[] = [];
+    for (const file of Array.from(files)) {
+      const ext = file.name.split(".").pop() || "jpg";
+      const url = await uploadPhoto(file, settings.id, `gallery-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+      if (url) newUrls.push(url);
+    }
+    updateField("gallery_photo_urls", [...settings.gallery_photo_urls, ...newUrls]);
+    setGalleryUploading(false);
+  }
+
+  function removeGalleryPhoto(url: string) {
+    if (!settings) return;
+    updateField("gallery_photo_urls", settings.gallery_photo_urls.filter((u) => u !== url));
+  }
+
+  async function uploadSinglePhoto(file: File, fieldName: "logo_url" | "cover_image_url") {
+    if (!settings) return;
+    const ext = file.name.split(".").pop() || "jpg";
+    const filename = `${fieldName.replace("_url", "")}-${Date.now()}.${ext}`;
+    const url = await uploadPhoto(file, settings.id, filename);
+    if (url) updateField(fieldName, url);
   }
 
   if (loading) {
@@ -159,29 +286,19 @@ export default function ImpostazioniPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Impostazioni</h1>
-          <p className="text-muted-foreground">
-            Configura il tuo stabilimento.
-          </p>
+          <p className="text-muted-foreground">Configura il tuo stabilimento.</p>
         </div>
         <Button variant="brand" onClick={handleSave} disabled={saving}>
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : saved ? (
-            <Check className="h-4 w-4" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
           {saved ? "Salvato!" : "Salva modifiche"}
         </Button>
       </div>
 
       {error && (
-        <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
+        <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
       )}
 
-      {/* Dati stabilimento */}
+      {/* ── Dati stabilimento ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -204,7 +321,13 @@ export default function ImpostazioniPage() {
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-sm font-medium">Descrizione</label>
-              <Input value={settings.description} onChange={(e) => updateField("description", e.target.value)} />
+              <textarea
+                value={settings.description}
+                onChange={(e) => updateField("description", e.target.value)}
+                rows={3}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-brand-azure focus:ring-2 focus:ring-brand-azure/20"
+                placeholder="Descrivi il tuo stabilimento: posizione, atmosfera, punti di forza..."
+              />
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium">Indirizzo</label>
@@ -212,7 +335,7 @@ export default function ImpostazioniPage() {
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Citta</label>
+                <label className="mb-1.5 block text-sm font-medium">Città</label>
                 <Input value={settings.city} onChange={(e) => updateField("city", e.target.value)} />
               </div>
               <div>
@@ -232,11 +355,209 @@ export default function ImpostazioniPage() {
               <label className="mb-1.5 block text-sm font-medium">Email</label>
               <Input value={settings.email} onChange={(e) => updateField("email", e.target.value)} />
             </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Sito web</label>
+              <Input value={settings.website} onChange={(e) => updateField("website", e.target.value)} placeholder="https://..." />
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Orari */}
+      {/* ── Foto & Immagini ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <ImageIcon className="h-5 w-5" />
+            Foto & Immagini
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Logo + Cover */}
+          <div className="grid gap-6 sm:grid-cols-2">
+            {/* Logo */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Logo</label>
+              <p className="mb-3 text-xs text-muted-foreground">Formato quadrato consigliato. Max 5MB.</p>
+              <div className="flex items-start gap-3">
+                {settings.logo_url ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={settings.logo_url} alt="Logo" className="h-20 w-20 rounded-xl border object-cover" />
+                    <button onClick={() => updateField("logo_url", "")} className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex h-20 w-20 flex-col items-center justify-center rounded-xl border-2 border-dashed bg-muted/40">
+                    <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                <label className="cursor-pointer">
+                  <span className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted transition">
+                    <Upload className="h-4 w-4" />
+                    {settings.logo_url ? "Cambia logo" : "Carica logo"}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadSinglePhoto(f, "logo_url"); e.target.value = ""; }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Cover */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Foto di copertina</label>
+              <p className="mb-3 text-xs text-muted-foreground">Formato orizzontale 16:9 consigliato. Max 5MB.</p>
+              <div className="flex items-start gap-3">
+                {settings.cover_image_url ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={settings.cover_image_url} alt="Cover" className="h-20 w-36 rounded-xl border object-cover" />
+                    <button onClick={() => updateField("cover_image_url", "")} className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex h-20 w-36 flex-col items-center justify-center rounded-xl border-2 border-dashed bg-muted/40">
+                    <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                <label className="cursor-pointer">
+                  <span className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted transition">
+                    <Upload className="h-4 w-4" />
+                    {settings.cover_image_url ? "Cambia cover" : "Carica cover"}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadSinglePhoto(f, "cover_image_url"); e.target.value = ""; }}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Gallery */}
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Galleria foto
+              <span className="ml-2 text-xs font-normal text-muted-foreground">({settings.gallery_photo_urls.length}/8 foto)</span>
+            </label>
+            <p className="mb-3 text-xs text-muted-foreground">Mostrate nella pagina pubblica del tuo stabilimento.</p>
+
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
+              {settings.gallery_photo_urls.map((url, i) => (
+                <div key={url} className="relative group aspect-square">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`Foto ${i + 1}`} className="h-full w-full rounded-xl border object-cover" />
+                  {i === 0 && (
+                    <div className="absolute bottom-1 left-1 flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      <Star className="h-2.5 w-2.5" /> Cover
+                    </div>
+                  )}
+                  <button
+                    onClick={() => removeGalleryPhoto(url)}
+                    className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-destructive text-white group-hover:flex"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+
+              {settings.gallery_photo_urls.length < 8 && (
+                <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed bg-muted/40 hover:bg-muted/70 transition">
+                  {galleryUploading ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  ) : (
+                    <>
+                      <Upload className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-[10px] text-muted-foreground">Aggiungi</span>
+                    </>
+                  )}
+                  <input
+                    ref={galleryInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => { if (e.target.files?.length) handleGalleryUpload(e.target.files); e.target.value = ""; }}
+                  />
+                </label>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              💡 La prima foto della galleria appare come copertina se non hai caricato una foto di copertina separata.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Caratteristiche & Dotazioni ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Sparkles className="h-5 w-5" />
+            Caratteristiche & Dotazioni
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Seleziona tutto ciò che è disponibile nel tuo stabilimento. Appare nella pagina pubblica con icone.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {AMENITY_GROUPS.map((group) => (
+            <div key={group.label}>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                {group.label}
+              </h3>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {group.items.map((item) => {
+                  const val = settings.amenities[item.key as keyof AmenitiesData];
+                  const isActive = Boolean(val);
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => updateAmenity(item.key, !isActive)}
+                      className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                        isActive
+                          ? "border-brand-azure/50 bg-brand-azure/10 text-brand-azure"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span className="text-lg leading-none">{item.emoji}</span>
+                      <span className="font-medium leading-tight">{item.label}</span>
+                      {isActive && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Campo posti parcheggio */}
+              {group.label === "Parcheggio" && (settings.amenities.parking_free || settings.amenities.parking_paid) && (
+                <div className="mt-3 flex items-center gap-3">
+                  <label className="text-sm font-medium whitespace-nowrap">Numero posti:</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={9999}
+                    placeholder="es. 50"
+                    value={settings.amenities.parking_spots ?? ""}
+                    onChange={(e) => updateAmenity("parking_spots", e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-32"
+                  />
+                  <span className="text-xs text-muted-foreground">(lascia vuoto se non vuoi mostrarlo)</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* ── Orari ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -258,7 +579,7 @@ export default function ImpostazioniPage() {
         </CardContent>
       </Card>
 
-      {/* Colori brand */}
+      {/* ── Colori brand ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -271,35 +592,23 @@ export default function ImpostazioniPage() {
             <div>
               <label className="mb-1.5 block text-sm font-medium">Colore primario</label>
               <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={settings.primary_color}
-                  onChange={(e) => updateField("primary_color", e.target.value)}
-                  className="h-10 w-10 cursor-pointer rounded border"
-                />
+                <input type="color" value={settings.primary_color} onChange={(e) => updateField("primary_color", e.target.value)} className="h-10 w-10 cursor-pointer rounded border" />
                 <Input value={settings.primary_color} onChange={(e) => updateField("primary_color", e.target.value)} className="flex-1" />
               </div>
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium">Colore secondario</label>
               <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={settings.secondary_color}
-                  onChange={(e) => updateField("secondary_color", e.target.value)}
-                  className="h-10 w-10 cursor-pointer rounded border"
-                />
+                <input type="color" value={settings.secondary_color} onChange={(e) => updateField("secondary_color", e.target.value)} className="h-10 w-10 cursor-pointer rounded border" />
                 <Input value={settings.secondary_color} onChange={(e) => updateField("secondary_color", e.target.value)} className="flex-1" />
               </div>
             </div>
           </div>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Questi colori verranno usati nella pagina pubblica del tuo stabilimento.
-          </p>
+          <p className="mt-3 text-sm text-muted-foreground">Questi colori vengono usati nella pagina pubblica del tuo stabilimento.</p>
         </CardContent>
       </Card>
 
-      {/* Pagamenti */}
+      {/* ── Pagamenti ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -308,150 +617,77 @@ export default function ImpostazioniPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Stripe */}
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div>
               <p className="font-medium">Stripe</p>
-              <p className="text-sm text-muted-foreground">
-                Carte di credito/debito. Collega il tuo account Stripe.
-              </p>
+              <p className="text-sm text-muted-foreground">Carte di credito/debito.</p>
             </div>
             <Button variant="brand">
               <ExternalLink className="h-4 w-4" />
               Collega Stripe
             </Button>
           </div>
-
-          {/* PayPal */}
           <div className="rounded-lg border p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">PayPal</p>
-                <p className="text-sm text-muted-foreground">
-                  Ricevi pagamenti tramite PayPal. Inserisci la tua email PayPal Business.
-                </p>
+                <p className="text-sm text-muted-foreground">Inserisci la tua email PayPal Business.</p>
               </div>
               <label className="relative inline-flex cursor-pointer items-center">
-                <input
-                  type="checkbox"
-                  className="peer sr-only"
-                  checked={settings.paypal_enabled}
-                  onChange={(e) => {
-                    setSettings({ ...settings, paypal_enabled: e.target.checked });
-                    setSaved(false);
-                  }}
-                />
+                <input type="checkbox" className="peer sr-only" checked={settings.paypal_enabled} onChange={(e) => setSettings({ ...settings, paypal_enabled: e.target.checked })} />
                 <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
               </label>
             </div>
             {settings.paypal_enabled && (
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Email PayPal Business</label>
-                <Input
-                  type="email"
-                  placeholder="pagamenti@tuolido.it"
-                  value={settings.paypal_email}
-                  onChange={(e) => updateField("paypal_email", e.target.value)}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  I pagamenti dei clienti verranno inviati a questo indirizzo PayPal.
-                </p>
+                <Input type="email" placeholder="pagamenti@tuolido.it" value={settings.paypal_email} onChange={(e) => updateField("paypal_email", e.target.value)} />
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Google Maps */}
+      {/* ── Google Maps ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <MapPin className="h-5 w-5" />
-            Google Maps e prenotazione
+            Google Maps
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Configura la tua posizione e attiva il pulsante &quot;Prenota ora&quot; su Google Maps.
-          </p>
-
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-sm font-medium">Google Place ID</label>
-              <Input
-                placeholder="ChIJ..."
-                value={settings.google_place_id}
-                onChange={(e) => updateField("google_place_id", e.target.value)}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Trovi il Place ID cercando il tuo lido su Google Maps.
-              </p>
+              <Input placeholder="ChIJ..." value={settings.google_place_id} onChange={(e) => updateField("google_place_id", e.target.value)} />
+              <p className="mt-1 text-xs text-muted-foreground">Trovi il Place ID cercando il tuo lido su Google Maps.</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Latitudine</label>
-                <Input
-                  type="text"
-                  placeholder="41.9028"
-                  value={settings.latitude}
-                  onChange={(e) => updateField("latitude", e.target.value)}
-                />
+                <Input type="text" placeholder="41.9028" value={settings.latitude} onChange={(e) => updateField("latitude", e.target.value)} />
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Longitudine</label>
-                <Input
-                  type="text"
-                  placeholder="12.4964"
-                  value={settings.longitude}
-                  onChange={(e) => updateField("longitude", e.target.value)}
-                />
+                <Input type="text" placeholder="12.4964" value={settings.longitude} onChange={(e) => updateField("longitude", e.target.value)} />
               </div>
             </div>
           </div>
-
-          {/* Link prenotazione per Google */}
           <div className="rounded-lg border border-brand-azure/20 bg-brand-azure/5 p-4 space-y-3">
             <p className="text-sm font-medium">Link prenotazione per Google Maps</p>
-            <p className="text-xs text-muted-foreground">
-              Copia questo link e aggiungilo al tuo Profilo Google Business come &quot;Link di prenotazione&quot;.
-              I clienti vedranno il pulsante &quot;Prenota&quot; quando cercano il tuo lido su Google.
-            </p>
             <div className="flex items-center gap-2">
-              <Input
-                readOnly
-                value={`https://lidofacile.it/lido/${settings.slug}/prenota`}
-                className="flex-1 bg-white text-sm"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(`https://lidofacile.it/lido/${settings.slug}/prenota`);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                }}
-              >
+              <Input readOnly value={`https://lidofacile.it/lido/${settings.slug}/prenota`} className="flex-1 bg-white text-sm" />
+              <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(`https://lidofacile.it/lido/${settings.slug}/prenota`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
                 {copied ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
                 {copied ? "Copiato!" : "Copia"}
               </Button>
             </div>
-
-            <details className="text-sm">
-              <summary className="cursor-pointer font-medium text-brand-azure">
-                Come attivare &quot;Prenota ora&quot; su Google Maps
-              </summary>
-              <ol className="mt-2 list-inside list-decimal space-y-1 text-muted-foreground">
-                <li>Vai su business.google.com e accedi al tuo profilo</li>
-                <li>Clicca su &quot;Modifica profilo&quot; → &quot;Contatti&quot;</li>
-                <li>Nella sezione &quot;Link per appuntamenti&quot; o &quot;Prenotazione&quot;, incolla il link qui sopra</li>
-                <li>Salva le modifiche. Il pulsante apparira entro 24-48 ore</li>
-              </ol>
-            </details>
           </div>
         </CardContent>
       </Card>
 
-      {/* Link pubblico */}
+      {/* ── Pagina pubblica ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -461,11 +697,7 @@ export default function ImpostazioniPage() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
-            <Input
-              readOnly
-              value={`${settings.slug}.lidofacile.it`}
-              className="flex-1 bg-muted"
-            />
+            <Input readOnly value={`${settings.slug}.lidofacile.it`} className="flex-1 bg-muted" />
             <Button variant="outline" asChild>
               <a href={`/lido/${settings.slug}`} target="_blank">
                 <ExternalLink className="h-4 w-4" />
@@ -475,6 +707,14 @@ export default function ImpostazioniPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Bottone salva finale */}
+      <div className="flex justify-end pb-6">
+        <Button variant="brand" size="lg" onClick={handleSave} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+          {saved ? "Salvato!" : "Salva tutte le modifiche"}
+        </Button>
+      </div>
     </div>
   );
 }
