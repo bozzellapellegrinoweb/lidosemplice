@@ -144,33 +144,28 @@ export default function BookingPage() {
   async function loadData() {
     const supabase = createClient();
 
-    const { data: est } = await supabase
-      .from("establishments")
-      .select("id, name, paypal_enabled, primary_color, payment_methods")
-      .eq("slug", slug)
-      .eq("is_active", true)
-      .single();
+    // Use /api/booking-config to get payment methods without sensitive credentials
+    const configRes = await fetch(`/api/booking-config?slug=${slug}`);
+    const config = configRes.ok ? await configRes.json() : null;
 
-    if (!est) return;
-    setEstablishmentId(est.id);
-    setEstablishmentName(est.name);
-    if (est.primary_color) setPrimaryColor(est.primary_color);
+    if (!config) return;
+    setEstablishmentId(config.id);
+    setEstablishmentName(config.name);
+    if (config.primary_color) setPrimaryColor(config.primary_color);
 
-    // Carica metodi di pagamento (fallback al vecchio paypal_enabled)
-    const pm = (est.payment_methods as Record<string, Record<string, unknown>> | null) ?? {
-      cash: { enabled: true },
-      ...(est.paypal_enabled ? { paypal: { enabled: true, email: "" } } : {}),
-    };
+    const pm = (config.payment_methods as Record<string, Record<string, unknown>>) ?? { cash: { enabled: true } };
     setPaymentMethods(pm);
     // Seleziona automaticamente il primo metodo abilitato
     const firstEnabled = Object.entries(pm).find(([, v]) => v.enabled)?.[0];
     if (firstEnabled) setPaymentMethod(firstEnabled);
 
+    const estId = config.id;
+
     // Load ALL active maps
     const { data: mapsData } = await supabase
       .from("beach_maps")
       .select("id, name")
-      .eq("establishment_id", est.id)
+      .eq("establishment_id", estId)
       .eq("is_active", true)
       .order("created_at");
 
@@ -205,7 +200,7 @@ export default function BookingPage() {
     const { data: servicesData } = await supabase
       .from("additional_services")
       .select("id, name, description, price_cents")
-      .eq("establishment_id", est.id)
+      .eq("establishment_id", estId)
       .eq("is_active", true)
       .order("sort_order");
 
@@ -215,13 +210,13 @@ export default function BookingPage() {
     const { data: seasonsData } = await supabase
       .from("seasons")
       .select("id, season_type, start_date, end_date")
-      .eq("establishment_id", est.id);
+      .eq("establishment_id", estId);
     if (seasonsData) setSeasons(seasonsData);
 
     const { data: rulesData } = await supabase
       .from("pricing_rules")
       .select("row_number, season_id, duration_type, price_cents")
-      .eq("establishment_id", est.id);
+      .eq("establishment_id", estId);
     if (rulesData) setPricingRules(rulesData as PricingRule[]);
 
     setLoading(false);
@@ -350,6 +345,14 @@ export default function BookingPage() {
     const bookingCode = generateBookingCode();
     const qrToken = crypto.randomUUID();
 
+    // Payments that redirect away get status "pending_payment"
+    const redirectMethods = ["satispay", "revolut", "stripe"];
+    const bookingStatus = paymentMethod === "cash"
+      ? "pending"
+      : redirectMethods.includes(paymentMethod)
+        ? "pending_payment"
+        : "confirmed";
+
     const { data: booking, error } = await supabase
       .from("bookings")
       .insert({
@@ -361,7 +364,7 @@ export default function BookingPage() {
         start_date: startDate,
         end_date: endDate,
         duration: "full_day",
-        status: paymentMethod === "cash" ? "pending" : "confirmed",
+        status: bookingStatus,
         payment_method: paymentMethod,
         total_cents: Math.round(total * 100),
         qr_code_token: qrToken,
@@ -382,10 +385,9 @@ export default function BookingPage() {
       sunbeds_count: item.sunbeds,
       price_cents: Math.round(getPrice(item.rowNumber, item.elementType) * days * 100),
     }));
-
     await supabase.from("booking_items").insert(items);
 
-    // Insert booking services (con quantità)
+    // Insert booking services
     const bookingServices = services
       .filter((s) => (serviceQtys[s.id] || 0) > 0)
       .map((s) => ({
@@ -394,9 +396,41 @@ export default function BookingPage() {
         quantity: serviceQtys[s.id],
         price_cents: s.price_cents * days,
       }));
-
     if (bookingServices.length > 0) {
       await supabase.from("booking_services").insert(bookingServices);
+    }
+
+    // Handle redirect-based payments
+    if (paymentMethod === "satispay") {
+      const res = await fetch("/api/satispay/create-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: booking.id }),
+      });
+      const data = await res.json();
+      if (data.redirect_url) {
+        window.location.href = data.redirect_url;
+        return;
+      }
+      alert(data.error ?? "Errore Satispay");
+      setSubmitting(false);
+      return;
+    }
+
+    if (paymentMethod === "revolut") {
+      const res = await fetch("/api/revolut/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: booking.id }),
+      });
+      const data = await res.json();
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+        return;
+      }
+      alert(data.error ?? "Errore Revolut");
+      setSubmitting(false);
+      return;
     }
 
     // Email conferma al cliente
@@ -413,7 +447,7 @@ export default function BookingPage() {
       body: JSON.stringify({ bookingId: booking.id }),
     }).catch(console.error);
 
-    // Mostra schermata di conferma (niente alert() nativo che viene bloccato su mobile)
+    // Mostra schermata di conferma
     const qrDataUrlGenerated = await QRCode.toDataURL(qrToken, { width: 250, margin: 2 });
     setQrDataUrl(qrDataUrlGenerated);
     setBookingConfirmed({ code: bookingCode, total: Math.round(total * 100), qrToken });
@@ -780,42 +814,42 @@ export default function BookingPage() {
                     <div>
                       <label className="mb-2 block text-sm font-medium">Metodo di pagamento</label>
                       <div className="grid gap-2">
-                        {paymentMethods.stripe?.enabled && (
+                        {Boolean(paymentMethods.stripe?.enabled) && (
                           <button type="button" onClick={() => setPaymentMethod("stripe")}
                             className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition-all ${paymentMethod === "stripe" ? "border-brand-azure bg-brand-azure/5" : "border-gray-200 hover:border-gray-300"}`}>
                             <CreditCard className={`h-5 w-5 ${paymentMethod === "stripe" ? "text-brand-azure" : "text-muted-foreground"}`} />
                             <div><p className="font-medium">Carta di credito / debito</p><p className="text-xs text-muted-foreground">Visa, Mastercard, Google Pay, Apple Pay</p></div>
                           </button>
                         )}
-                        {paymentMethods.paypal?.enabled && (
+                        {Boolean(paymentMethods.paypal?.enabled) && (
                           <button type="button" onClick={() => setPaymentMethod("paypal")}
                             className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition-all ${paymentMethod === "paypal" ? "border-[#0070ba] bg-[#0070ba]/5" : "border-gray-200 hover:border-gray-300"}`}>
                             <Wallet className={`h-5 w-5 ${paymentMethod === "paypal" ? "text-[#0070ba]" : "text-muted-foreground"}`} />
                             <div><p className="font-medium">PayPal</p><p className="text-xs text-muted-foreground">Paga con il tuo conto PayPal</p></div>
                           </button>
                         )}
-                        {paymentMethods.satispay?.enabled && (
+                        {Boolean(paymentMethods.satispay?.enabled) && (
                           <button type="button" onClick={() => setPaymentMethod("satispay")}
                             className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition-all ${paymentMethod === "satispay" ? "border-[#e30613] bg-[#e30613]/5" : "border-gray-200 hover:border-gray-300"}`}>
                             <span className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-black ${paymentMethod === "satispay" ? "bg-[#e30613] text-white" : "bg-gray-200 text-gray-600"}`}>S</span>
-                            <div><p className="font-medium">Satispay</p><p className="text-xs text-muted-foreground">Pagamento dal cellulare</p></div>
+                            <div><p className="font-medium">Satispay</p><p className="text-xs text-muted-foreground">Verrai reindirizzato su Satispay</p></div>
                           </button>
                         )}
-                        {paymentMethods.revolut?.enabled && (
+                        {Boolean(paymentMethods.revolut?.enabled) && (
                           <button type="button" onClick={() => setPaymentMethod("revolut")}
                             className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition-all ${paymentMethod === "revolut" ? "border-black bg-black/5" : "border-gray-200 hover:border-gray-300"}`}>
                             <span className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-black ${paymentMethod === "revolut" ? "bg-black text-white" : "bg-gray-200 text-gray-600"}`}>R</span>
-                            <div><p className="font-medium">RevolutPay</p><p className="text-xs text-muted-foreground">Paga con Revolut</p></div>
+                            <div><p className="font-medium">RevolutPay</p><p className="text-xs text-muted-foreground">Verrai reindirizzato su Revolut</p></div>
                           </button>
                         )}
-                        {paymentMethods.bonifico?.enabled && (
+                        {Boolean(paymentMethods.bonifico?.enabled) && (
                           <button type="button" onClick={() => setPaymentMethod("bonifico")}
                             className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition-all ${paymentMethod === "bonifico" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}>
                             <Building className={`h-5 w-5 ${paymentMethod === "bonifico" ? "text-blue-600" : "text-muted-foreground"}`} />
                             <div><p className="font-medium">Bonifico bancario</p><p className="text-xs text-muted-foreground">IBAN: {String(paymentMethods.bonifico?.iban || "").slice(0, 12)}...</p></div>
                           </button>
                         )}
-                        {paymentMethods.cash?.enabled && (
+                        {Boolean(paymentMethods.cash?.enabled) && (
                           <button type="button" onClick={() => setPaymentMethod("cash")}
                             className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition-all ${paymentMethod === "cash" ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-gray-300"}`}>
                             <Banknote className={`h-5 w-5 ${paymentMethod === "cash" ? "text-green-600" : "text-muted-foreground"}`} />
@@ -827,23 +861,23 @@ export default function BookingPage() {
                   )}
 
                   {/* Info pagamento selezionato */}
-                  {paymentMethod === "satispay" && paymentMethods.satispay?.code && (
+                  {paymentMethod === "satispay" && (
                     <div className="rounded-lg bg-[#e30613]/5 border border-[#e30613]/20 p-3 text-sm">
                       <p className="font-medium text-[#e30613]">Satispay</p>
-                      <p className="text-muted-foreground mt-1">Cerca <strong>{String(paymentMethods.satispay.code)}</strong> su Satispay e invia il pagamento prima dell&apos;arrivo.</p>
+                      <p className="text-muted-foreground mt-1">Cliccando &quot;Conferma&quot; sarai reindirizzato alla pagina di pagamento Satispay. Il tuo posto sarà confermato automaticamente.</p>
                     </div>
                   )}
-                  {paymentMethod === "revolut" && paymentMethods.revolut?.tag && (
+                  {paymentMethod === "revolut" && (
                     <div className="rounded-lg bg-black/5 border border-black/10 p-3 text-sm">
                       <p className="font-medium">RevolutPay</p>
-                      <p className="text-muted-foreground mt-1">Invia il pagamento a <strong>{String(paymentMethods.revolut.tag)}</strong> su Revolut prima dell&apos;arrivo.</p>
+                      <p className="text-muted-foreground mt-1">Cliccando &quot;Conferma&quot; sarai reindirizzato alla pagina di pagamento Revolut. Il tuo posto sarà confermato automaticamente.</p>
                     </div>
                   )}
-                  {paymentMethod === "bonifico" && paymentMethods.bonifico?.iban && (
+                  {paymentMethod === "bonifico" && Boolean(paymentMethods.bonifico?.iban) && (
                     <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-sm space-y-1">
                       <p className="font-medium text-blue-700">Dati per il bonifico</p>
-                      <p><span className="text-muted-foreground">IBAN:</span> <strong>{String(paymentMethods.bonifico.iban)}</strong></p>
-                      {paymentMethods.bonifico.intestatario && <p><span className="text-muted-foreground">Intestato a:</span> <strong>{String(paymentMethods.bonifico.intestatario)}</strong></p>}
+                      <p><span className="text-muted-foreground">IBAN:</span> <strong>{String(paymentMethods.bonifico?.iban ?? "")}</strong></p>
+                      {Boolean(paymentMethods.bonifico?.intestatario) && <p><span className="text-muted-foreground">Intestato a:</span> <strong>{String(paymentMethods.bonifico?.intestatario ?? "")}</strong></p>}
                       <p className="text-xs text-muted-foreground">Causale: Prenotazione ombrellone + tuo nome</p>
                     </div>
                   )}

@@ -17,8 +17,8 @@ type PaymentMethods = {
   cash: { enabled: boolean };
   stripe: { enabled: boolean };
   paypal: { enabled: boolean; email: string };
-  satispay: { enabled: boolean; code: string };
-  revolut: { enabled: boolean; tag: string };
+  satispay: { enabled: boolean; key_id: string; private_key: string };
+  revolut: { enabled: boolean; api_key: string };
   bonifico: { enabled: boolean; iban: string; intestatario: string };
 };
 
@@ -26,8 +26,8 @@ const DEFAULT_PAYMENT_METHODS: PaymentMethods = {
   cash: { enabled: true },
   stripe: { enabled: false },
   paypal: { enabled: false, email: "" },
-  satispay: { enabled: false, code: "" },
-  revolut: { enabled: false, tag: "" },
+  satispay: { enabled: false, key_id: "", private_key: "" },
+  revolut: { enabled: false, api_key: "" },
   bonifico: { enabled: false, iban: "", intestatario: "" },
 };
 
@@ -310,6 +310,9 @@ export default function ImpostazioniPage() {
   const [copied, setCopied] = useState(false);
   const [galleryUploading, setGalleryUploading] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [satispayToken, setSatispayToken] = useState("");
+  const [satispayActivating, setSatispayActivating] = useState(false);
+  const [satispayError, setSatispayError] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -390,6 +393,37 @@ export default function ImpostazioniPage() {
       },
     });
     setSaved(false);
+  }
+
+  async function activateSatispay() {
+    if (!settings || !satispayToken.trim()) return;
+    setSatispayActivating(true);
+    setSatispayError("");
+    try {
+      const res = await fetch("/api/satispay/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId: settings.id, activationToken: satispayToken.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSatispayToken("");
+        // Reload settings to reflect new key_id
+        setSettings((prev) => prev ? {
+          ...prev,
+          payment_methods: {
+            ...prev.payment_methods,
+            satispay: { ...prev.payment_methods.satispay, enabled: true, key_id: data.key_id, private_key: "•••" },
+          },
+        } : prev);
+      } else {
+        setSatispayError(data.error ?? "Attivazione non riuscita");
+      }
+    } catch {
+      setSatispayError("Errore di rete");
+    } finally {
+      setSatispayActivating(false);
+    }
   }
 
   function updateAmenity(key: string, value: boolean | number | null) {
@@ -919,11 +953,26 @@ export default function ImpostazioniPage() {
               </label>
             </div>
             {settings.payment_methods.paypal.enabled && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Email PayPal Business</label>
-                <Input type="email" placeholder="pagamenti@tuolido.it"
-                  value={settings.payment_methods.paypal.email}
-                  onChange={(e) => updatePaymentMethod("paypal", "email", e.target.value)} />
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Email PayPal Business</label>
+                  <Input type="email" placeholder="pagamenti@tuolido.it"
+                    value={settings.payment_methods.paypal.email}
+                    onChange={(e) => updatePaymentMethod("paypal", "email", e.target.value)} />
+                  <p className="mt-1 text-xs text-muted-foreground">I clienti vengono reindirizzati alla tua pagina PayPal per completare il pagamento.</p>
+                </div>
+                <details className="rounded-lg bg-blue-50 border border-blue-200">
+                  <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-blue-800 list-none flex items-center gap-2">
+                    <span>📖</span> Come trovare la tua email PayPal Business
+                  </summary>
+                  <div className="px-4 pb-4 pt-2 text-sm text-blue-900 space-y-1">
+                    <ol className="list-decimal list-inside space-y-2">
+                      <li>Accedi a <strong>paypal.com</strong> con il tuo account Business</li>
+                      <li>Vai su <strong>Impostazioni account → Email</strong></li>
+                      <li>Copia la tua email principale e incollala qui sopra</li>
+                    </ol>
+                  </div>
+                </details>
               </div>
             )}
           </div>
@@ -947,13 +996,60 @@ export default function ImpostazioniPage() {
                 <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
               </label>
             </div>
+
             {settings.payment_methods.satispay.enabled && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Codice Satispay Business</label>
-                <Input placeholder="es. LIDO-BELLO o link satispay.com/..."
-                  value={settings.payment_methods.satispay.code}
-                  onChange={(e) => updatePaymentMethod("satispay", "code", e.target.value)} />
-                <p className="mt-1 text-xs text-muted-foreground">Trovi il codice nelle impostazioni del tuo account Satispay Business.</p>
+              <div className="space-y-3">
+                {/* Se già attivato */}
+                {settings.payment_methods.satispay.key_id ? (
+                  <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    Satispay collegato — Key ID: <span className="font-mono ml-1">{settings.payment_methods.satispay.key_id}</span>
+                  </div>
+                ) : (
+                  /* Attivazione con token */
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium">Codice di attivazione Satispay</label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Es. ABC123"
+                        value={satispayToken}
+                        onChange={(e) => setSatispayToken(e.target.value.toUpperCase())}
+                        className="font-mono"
+                        maxLength={8}
+                      />
+                      <Button
+                        type="button"
+                        variant="default"
+                        onClick={activateSatispay}
+                        disabled={satispayActivating || !satispayToken.trim()}
+                        className="shrink-0"
+                      >
+                        {satispayActivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Attiva"}
+                      </Button>
+                    </div>
+                    {satispayError && <p className="text-xs text-destructive">{satispayError}</p>}
+                  </div>
+                )}
+
+                {/* Guida collassabile */}
+                <details className="rounded-lg bg-amber-50 border border-amber-200">
+                  <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-amber-800 list-none flex items-center gap-2">
+                    <span>📖</span> Come ottenere il codice di attivazione Satispay
+                  </summary>
+                  <div className="px-4 pb-4 pt-2 text-sm text-amber-900 space-y-2">
+                    <ol className="list-decimal list-inside space-y-2">
+                      <li>Apri l&apos;app <strong>Satispay Business</strong> sul tuo telefono</li>
+                      <li>Vai su <strong>Impostazioni → Integrazione API</strong></li>
+                      <li>Seleziona <strong>&quot;Ottieni codice di attivazione&quot;</strong></li>
+                      <li>Appare un codice alfanumerico (es. ABC123) — inseriscilo qui sopra</li>
+                      <li>Clicca <strong>Attiva</strong>: generiamo automaticamente le chiavi API e le colleghiamo al tuo account</li>
+                    </ol>
+                    <p className="mt-2 text-xs">
+                      In alternativa puoi accedere al portale Business all&apos;indirizzo{" "}
+                      <strong>business.satispay.com → Integrazioni</strong>.
+                    </p>
+                  </div>
+                </details>
               </div>
             )}
           </div>
@@ -967,7 +1063,7 @@ export default function ImpostazioniPage() {
                 </div>
                 <div>
                   <p className="font-medium">RevolutPay</p>
-                  <p className="text-sm text-muted-foreground">Pagamento rapido con Revolut.</p>
+                  <p className="text-sm text-muted-foreground">Pagamento rapido con Revolut. I clienti vengono reindirizzati alla pagina di pagamento Revolut.</p>
                 </div>
               </div>
               <label className="relative inline-flex cursor-pointer items-center">
@@ -978,11 +1074,41 @@ export default function ImpostazioniPage() {
               </label>
             </div>
             {settings.payment_methods.revolut.enabled && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Tag o link Revolut</label>
-                <Input placeholder="es. @tuolido o revolut.me/tuolido"
-                  value={settings.payment_methods.revolut.tag}
-                  onChange={(e) => updatePaymentMethod("revolut", "tag", e.target.value)} />
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">API Key Revolut Merchant</label>
+                  <Input
+                    type="password"
+                    placeholder="sk_live_..."
+                    value={settings.payment_methods.revolut.api_key}
+                    onChange={(e) => updatePaymentMethod("revolut", "api_key", e.target.value)}
+                    className="font-mono text-sm"
+                  />
+                  {settings.payment_methods.revolut.api_key && (
+                    <div className="mt-1 flex items-center gap-1 text-xs text-green-600">
+                      <CheckCircle2 className="h-3 w-3" /> API Key configurata
+                    </div>
+                  )}
+                </div>
+
+                {/* Guida collassabile */}
+                <details className="rounded-lg bg-blue-50 border border-blue-200">
+                  <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-blue-800 list-none flex items-center gap-2">
+                    <span>📖</span> Come ottenere l&apos;API Key Revolut
+                  </summary>
+                  <div className="px-4 pb-4 pt-2 text-sm text-blue-900 space-y-2">
+                    <ol className="list-decimal list-inside space-y-2">
+                      <li>Accedi al portale <strong>Revolut Business</strong> su <strong>business.revolut.com</strong></li>
+                      <li>Nel menu di sinistra vai su <strong>Merchant API → Impostazioni</strong></li>
+                      <li>Clicca <strong>&quot;Crea nuova API Key&quot;</strong></li>
+                      <li>Seleziona l&apos;ambiente <strong>Produzione</strong> e copia la chiave <code>sk_live_...</code></li>
+                      <li>Incollala nel campo qui sopra e clicca <strong>Salva tutte le modifiche</strong></li>
+                    </ol>
+                    <p className="mt-2 text-xs font-medium">
+                      Configura anche il webhook Revolut: URL → <code className="bg-blue-100 px-1 rounded">https://lido-facile.it/api/revolut/webhook</code>
+                    </p>
+                  </div>
+                </details>
               </div>
             )}
           </div>
