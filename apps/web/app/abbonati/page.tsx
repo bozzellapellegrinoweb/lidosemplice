@@ -1,11 +1,10 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-import { Check, ShieldCheck, Zap, Users, BarChart3, MessageSquare } from "lucide-react";
+import { Suspense, useState } from "react";
+import { Check, ShieldCheck, Zap, Users, BarChart3, MessageSquare, Loader2 } from "lucide-react";
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { Logo } from "@/components/logo";
-import Link from "next/link";
 
 const FEATURES = [
   { icon: Zap, text: "Mappa interattiva spiaggia con prenotazione online" },
@@ -20,8 +19,22 @@ function AbbonatiContent() {
   const searchParams = useSearchParams();
   const slug = searchParams.get("slug") ?? "";
   const id = searchParams.get("id") ?? "";
+  const [stripeLoading, setStripeLoading] = useState(false);
 
-  const stripeLink = `https://buy.stripe.com/aFa00ce1H9Rl7Pj6mf83C1a?client_reference_id=${id}&prefilled_email=`;
+  async function handleStripe() {
+    setStripeLoading(true);
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId: id, slug }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } finally {
+      setStripeLoading(false);
+    }
+  }
 
   async function createPayPalOrder() {
     const res = await fetch("/api/paypal/create-order", {
@@ -79,15 +92,20 @@ function AbbonatiContent() {
           </ul>
 
           {/* Stripe */}
-          <a
-            href={stripeLink}
-            className="mb-3 flex w-full items-center justify-center gap-3 rounded-xl bg-[#0B1829] px-6 py-4 font-bold text-white transition hover:bg-[#0B1829]/80"
+          <button
+            onClick={handleStripe}
+            disabled={stripeLoading}
+            className="mb-3 flex w-full items-center justify-center gap-3 rounded-xl bg-[#0B1829] px-6 py-4 font-bold text-white transition hover:bg-[#0B1829]/80 disabled:opacity-60"
           >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.591-7.305z"/>
-            </svg>
-            Paga con carta di credito
-          </a>
+            {stripeLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.591-7.305z"/>
+              </svg>
+            )}
+            {stripeLoading ? "Reindirizzamento..." : "Paga con carta di credito"}
+          </button>
 
           {/* Divider */}
           <div className="relative mb-3">
