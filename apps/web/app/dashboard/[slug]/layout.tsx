@@ -23,7 +23,7 @@ export default async function EstablishmentLayout({ children, params }: Props) {
   // Verifica che lo stabilimento esista
   const { data: establishment } = await supabase
     .from("establishments")
-    .select("id, name, slug, owner_id")
+    .select("id, name, slug, owner_id, subscription_status, subscription_expires_at")
     .eq("slug", slug)
     .single();
 
@@ -46,7 +46,24 @@ export default async function EstablishmentLayout({ children, params }: Props) {
     redirect("/dashboard");
   }
 
+  // Paywall: controlla abbonamento (solo per admin/proprietario)
   const role = membership?.role || (isOwner ? "admin" : "employee");
+  if (isOwner || role === "admin") {
+    const status = establishment.subscription_status;
+    const expiresAt = establishment.subscription_expires_at
+      ? new Date(establishment.subscription_expires_at)
+      : null;
+    const now = new Date();
+    const isBlocked =
+      status === "expired" ||
+      status === "cancelled" ||
+      status === "past_due" ||
+      (status === "trial" && expiresAt !== null && expiresAt < now);
+    if (isBlocked) {
+      redirect(`/abbonati?slug=${slug}&id=${establishment.id}`);
+    }
+  }
+
   const permissions = membership?.permissions as Record<string, boolean> | null;
 
   return (
