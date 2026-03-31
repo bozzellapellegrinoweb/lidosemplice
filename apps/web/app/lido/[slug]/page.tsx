@@ -83,7 +83,7 @@ export default async function LidoPage({ params }: PageProps) {
     ...(establishment.phone && { telephone: establishment.phone }),
     potentialAction: {
       "@type": "ReserveAction",
-      target: `https://lidofacile.it/lido/${slug}/prenota`,
+      target: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://lido-facile.it"}/lido/${slug}/prenota`,
     },
   };
 

@@ -6,7 +6,7 @@ export async function middleware(request: NextRequest) {
 
   // Subdomain routing (non richiede auth)
   const hostname = request.headers.get("host") || "";
-  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "lidofacile.it";
+  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "lido-facile.it";
   const subdomain = hostname
     .replace(`.${baseDomain}`, "")
     .replace(`:${request.nextUrl.port}`, "");
@@ -15,7 +15,7 @@ export async function middleware(request: NextRequest) {
     subdomain !== hostname &&
     subdomain !== "www" &&
     subdomain !== "localhost" &&
-    subdomain !== "lidofacile" &&
+    subdomain !== "lido-facile" &&
     subdomain !== "dashboard" &&
     !hostname.includes("vercel.app") &&
     !hostname.includes("localhost");

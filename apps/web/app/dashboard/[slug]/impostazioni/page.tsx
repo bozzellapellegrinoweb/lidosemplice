@@ -556,7 +556,7 @@ export default function ImpostazioniPage() {
               <label className="mb-1.5 block text-sm font-medium">Slug (URL)</label>
               <div className="flex items-center gap-1">
                 <Input value={settings.slug} disabled className="bg-muted" />
-                <span className="whitespace-nowrap text-sm text-muted-foreground">.lidofacile.it</span>
+                <span className="whitespace-nowrap text-sm text-muted-foreground">.lido-facile.it</span>
               </div>
             </div>
             <div className="sm:col-span-2">
@@ -1182,8 +1182,8 @@ export default function ImpostazioniPage() {
           <div className="rounded-lg border border-brand-azure/20 bg-brand-azure/5 p-4 space-y-3">
             <p className="text-sm font-medium">Link prenotazione per Google Maps</p>
             <div className="flex items-center gap-2">
-              <Input readOnly value={`https://lidofacile.it/lido/${settings.slug}/prenota`} className="flex-1 bg-white text-sm" />
-              <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(`https://lidofacile.it/lido/${settings.slug}/prenota`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
+              <Input readOnly value={`https://lido-facile.it/lido/${settings.slug}/prenota`} className="flex-1 bg-white text-sm" />
+              <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(`https://lido-facile.it/lido/${settings.slug}/prenota`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
                 {copied ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
                 {copied ? "Copiato!" : "Copia"}
               </Button>
@@ -1202,7 +1202,7 @@ export default function ImpostazioniPage() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
-            <Input readOnly value={`${settings.slug}.lidofacile.it`} className="flex-1 bg-muted" />
+            <Input readOnly value={`${settings.slug}.lido-facile.it`} className="flex-1 bg-muted" />
             <Button variant="outline" asChild>
               <a href={`/lido/${settings.slug}`} target="_blank">
                 <ExternalLink className="h-4 w-4" />

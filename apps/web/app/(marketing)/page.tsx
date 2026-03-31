@@ -154,7 +154,7 @@ export default function HomePage() {
                 <div className="h-3 w-3 rounded-full bg-yellow-500" />
                 <div className="h-3 w-3 rounded-full bg-green-500" />
                 <span className="ml-2 text-xs text-white/40">
-                  dashboard.lidofacile.it/lido-azzurro/mappa
+                  dashboard.lido-facile.it/lido-azzurro/mappa
                 </span>
               </div>
               {/* Anteprima mappa stabilimento */}
@@ -306,9 +306,9 @@ export default function HomePage() {
               },
               {
                 icon: CreditCard,
-                title: "Pagamenti Stripe",
+                title: "Pagamenti online",
                 description:
-                  "Incassa online con un clic. Zero commissioni da parte nostra — il 100% va a te.",
+                  "Accetta carte, PayPal, Satispay, Revolut e altro. Zero commissioni da parte nostra — il 100% va a te.",
               },
               {
                 icon: QrCode,
@@ -405,7 +405,7 @@ export default function HomePage() {
                 step: "3",
                 title: "Inizia a incassare",
                 description:
-                  "Collega Stripe in 2 minuti e sei online. I clienti prenotano e pagano dal telefono.",
+                  "Collega i pagamenti in 2 minuti: carte, PayPal, Satispay, Revolut. I clienti prenotano e pagano direttamente dal telefono.",
               },
             ].map((item) => (
               <div key={item.step} className="relative text-center">
@@ -449,11 +449,11 @@ export default function HomePage() {
                   Piano Annuale
                 </h3>
                 <div className="mt-4 flex items-baseline gap-1">
-                  <span className="text-5xl font-bold text-white">597</span>
+                  <span className="text-5xl font-bold text-white">497</span>
                   <span className="text-xl text-white/50">&euro;/anno</span>
                 </div>
                 <p className="mt-2 text-sm text-white/40">
-                  Equivale a meno di 1,64 &euro; al giorno
+                  Equivale a meno di 1,37 &euro; al giorno
                 </p>
 
                 <div className="mt-8 space-y-4">
@@ -487,7 +487,7 @@ export default function HomePage() {
                 </Button>
 
                 <p className="mt-4 text-center text-sm text-white/40">
-                  14 giorni gratis, poi 597 &euro;/anno. Disdici quando vuoi.
+                  14 giorni gratis, poi 497 &euro;/anno. Disdici quando vuoi.
                 </p>
               </CardContent>
             </Card>
