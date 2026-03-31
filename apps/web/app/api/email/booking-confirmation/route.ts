@@ -1,5 +1,13 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+
+function adminSupabase() {
+  return createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export async function POST(request: Request) {
   if (!process.env.RESEND_API_KEY) {
@@ -13,7 +21,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "bookingId mancante" }, { status: 400 });
   }
 
-  const supabase = await createClient();
+  const supabase = adminSupabase();
 
   // Fetch booking with establishment
   const { data: booking } = await supabase
