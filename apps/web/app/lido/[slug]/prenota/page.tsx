@@ -27,7 +27,6 @@ import {
 } from "lucide-react";
 import QRCode from "qrcode";
 import { createClient } from "@/lib/supabase/client";
-import { generateBookingCode } from "@/lib/utils";
 
 interface MapRow {
   id: string;
@@ -341,94 +340,80 @@ export default function BookingPage() {
     if (paymentMethod === "stripe" && !guestEmail) return;
     setSubmitting(true);
 
-    const supabase = createClient();
-    const bookingCode = generateBookingCode();
-    const qrToken = crypto.randomUUID();
+    // Build items and services payload
+    const items = selectedItems.map((item) => ({
+      map_element_id: item.id,
+      sunbeds_count: item.sunbeds,
+      price_cents: Math.round(getPrice(item.rowNumber, item.elementType) * days * 100),
+    }));
 
-    // Payments that redirect away get status "pending_payment"
-    const redirectMethods = ["satispay", "revolut", "stripe"];
-    const bookingStatus = paymentMethod === "cash"
-      ? "pending"
-      : redirectMethods.includes(paymentMethod)
-        ? "pending_payment"
-        : "confirmed";
+    const bookingServices = services
+      .filter((s) => (serviceQtys[s.id] || 0) > 0)
+      .map((s) => ({
+        service_id: s.id,
+        quantity: serviceQtys[s.id],
+        price_cents: s.price_cents * days,
+      }));
 
-    const { data: booking, error } = await supabase
-      .from("bookings")
-      .insert({
+    // Use server-side API route to bypass RLS (anonymous users)
+    const res = await fetch("/api/bookings/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         establishment_id: establishmentId,
-        booking_code: bookingCode,
         guest_name: guestName,
         guest_email: guestEmail,
         guest_phone: guestPhone,
         start_date: startDate,
         end_date: endDate,
-        duration: "full_day",
-        status: bookingStatus,
         payment_method: paymentMethod,
         total_cents: Math.round(total * 100),
-        qr_code_token: qrToken,
-      })
-      .select("id")
-      .single();
+        items,
+        services: bookingServices,
+      }),
+    });
 
-    if (error || !booking) {
-      alert("Errore nella prenotazione: " + (error?.message || "sconosciuto"));
+    const bookingData = await res.json();
+
+    if (!res.ok || !bookingData.id) {
+      alert("Errore nella prenotazione: " + (bookingData.error || "sconosciuto"));
       setSubmitting(false);
       return;
     }
 
-    // Insert booking items
-    const items = selectedItems.map((item) => ({
-      booking_id: booking.id,
-      map_element_id: item.id,
-      sunbeds_count: item.sunbeds,
-      price_cents: Math.round(getPrice(item.rowNumber, item.elementType) * days * 100),
-    }));
-    await supabase.from("booking_items").insert(items);
-
-    // Insert booking services
-    const bookingServices = services
-      .filter((s) => (serviceQtys[s.id] || 0) > 0)
-      .map((s) => ({
-        booking_id: booking.id,
-        service_id: s.id,
-        quantity: serviceQtys[s.id],
-        price_cents: s.price_cents * days,
-      }));
-    if (bookingServices.length > 0) {
-      await supabase.from("booking_services").insert(bookingServices);
-    }
+    const bookingId = bookingData.id;
+    const bookingCode = bookingData.booking_code;
+    const qrToken = bookingData.qr_token;
 
     // Handle redirect-based payments
     if (paymentMethod === "satispay") {
-      const res = await fetch("/api/satispay/create-payment", {
+      const satRes = await fetch("/api/satispay/create-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId: booking.id }),
+        body: JSON.stringify({ bookingId }),
       });
-      const data = await res.json();
-      if (data.redirect_url) {
-        window.location.href = data.redirect_url;
+      const satData = await satRes.json();
+      if (satData.redirect_url) {
+        window.location.href = satData.redirect_url;
         return;
       }
-      alert(data.error ?? "Errore Satispay");
+      alert(satData.error ?? "Errore Satispay");
       setSubmitting(false);
       return;
     }
 
     if (paymentMethod === "revolut") {
-      const res = await fetch("/api/revolut/create-order", {
+      const revRes = await fetch("/api/revolut/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId: booking.id }),
+        body: JSON.stringify({ bookingId }),
       });
-      const data = await res.json();
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url;
+      const revData = await revRes.json();
+      if (revData.checkout_url) {
+        window.location.href = revData.checkout_url;
         return;
       }
-      alert(data.error ?? "Errore Revolut");
+      alert(revData.error ?? "Errore Revolut");
       setSubmitting(false);
       return;
     }
@@ -437,14 +422,14 @@ export default function BookingPage() {
     fetch("/api/email/booking-confirmation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId: booking.id }),
+      body: JSON.stringify({ bookingId }),
     }).catch(console.error);
 
     // Notifica al gestore
     fetch("/api/email/nuova-prenotazione", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId: booking.id }),
+      body: JSON.stringify({ bookingId }),
     }).catch(console.error);
 
     // Mostra schermata di conferma
