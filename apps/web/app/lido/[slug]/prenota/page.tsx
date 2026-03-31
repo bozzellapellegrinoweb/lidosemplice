@@ -389,8 +389,15 @@ export default function BookingPage() {
       await supabase.from("booking_services").insert(bookingServices);
     }
 
-    // Send confirmation email
+    // Email conferma al cliente
     fetch("/api/email/booking-confirmation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId: booking.id }),
+    }).catch(console.error);
+
+    // Notifica al gestore
+    fetch("/api/email/nuova-prenotazione", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bookingId: booking.id }),

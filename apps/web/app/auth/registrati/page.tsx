@@ -136,6 +136,18 @@ export default function RegisterPage() {
         });
       }
 
+      // Email di benvenuto al gestore (fire-and-forget)
+      fetch("/api/email/benvenuto-gestore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          full_name: formData.fullName,
+          establishment_name: formData.establishmentName,
+          slug,
+        }),
+      }).catch(console.error);
+
       router.push(`/dashboard/${slug}`);
     } catch {
       setError("Si è verificato un errore. Riprova.");

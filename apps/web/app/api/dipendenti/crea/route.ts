@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     // Controlla autorizzazione: proprietario dello stabilimento O membro admin
     const { data: establishment } = await supabase
       .from("establishments")
-      .select("id, owner_id")
+      .select("id, owner_id, name")
       .eq("id", establishment_id)
       .single();
 
@@ -96,6 +96,18 @@ export async function POST(req: NextRequest) {
       await adminSupabase.auth.admin.deleteUser(newUser.user.id);
       return NextResponse.json({ error: memberError.message }, { status: 500 });
     }
+
+    // Email di benvenuto al dipendente (fire-and-forget)
+    fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/benvenuto-dipendente`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        full_name,
+        establishment_name: (establishment as unknown as { name: string }).name,
+        password,
+      }),
+    }).catch(console.error);
 
     return NextResponse.json({ success: true, user_id: newUser.user.id });
   } catch (e) {

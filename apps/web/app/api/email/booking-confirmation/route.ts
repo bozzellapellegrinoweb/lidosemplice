@@ -145,7 +145,7 @@ export async function POST(request: Request) {
 
       <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
       <p style="text-align: center; font-size: 12px; color: #999;">
-        ${est.name} · Gestito con <a href="https://lidofacile.it" style="color: #00BFFF;">LidoFacile.it</a>
+        ${est.name} · Gestito con <a href="https://lido-facile.it" style="color: #00BFFF;">LidoFacile.it</a>
       </p>
     </body>
     </html>
@@ -153,7 +153,7 @@ export async function POST(request: Request) {
 
   try {
     await resend.emails.send({
-      from: `${est.name} <noreply@lidofacile.it>`,
+      from: `${est.name} <noreply@lido-facile.it>`,
       to: [booking.guest_email],
       subject: `Prenotazione confermata - ${booking.booking_code} | ${est.name}`,
       html,
