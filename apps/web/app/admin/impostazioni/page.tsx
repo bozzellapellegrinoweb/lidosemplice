@@ -22,11 +22,11 @@ export default function AdminImpostazioni() {
           <CardContent className="space-y-3 text-sm">
             <div className="flex items-center justify-between rounded-lg border p-3">
               <span className="text-muted-foreground">Dominio principale</span>
-              <span className="font-medium">lidofacile.it</span>
+              <span className="font-medium">lido-facile.it</span>
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <span className="text-muted-foreground">Wildcard DNS</span>
-              <span className="font-medium">*.lidofacile.it</span>
+              <span className="font-medium">*.lido-facile.it</span>
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <span className="text-muted-foreground">Hosting</span>
@@ -45,7 +45,7 @@ export default function AdminImpostazioni() {
           <CardContent className="space-y-3 text-sm">
             <div className="flex items-center justify-between rounded-lg border p-3">
               <span className="text-muted-foreground">Abbonamento</span>
-              <span className="font-medium">597&euro;/anno</span>
+              <span className="font-medium">497&euro;/anno</span>
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <span className="text-muted-foreground">Trial gratuito</span>

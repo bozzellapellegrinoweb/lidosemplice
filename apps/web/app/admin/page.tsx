@@ -80,14 +80,14 @@ export default async function AdminDashboard() {
     (s) => s.status === "trialing"
   ).length;
 
-  // MRR (597€/anno = 49,75€/mese per abbonamento attivo)
-  const mrr = activeSubscriptions * 4975; // in cents
-  const arr = activeSubscriptions * 59700; // in cents
+  // MRR (497€/anno = 41,42€/mese per abbonamento attivo)
+  const mrr = activeSubscriptions * 4142; // in cents
+  const arr = activeSubscriptions * 49700; // in cents
 
   // Ultimi stabilimenti registrati
   const { data: recentEstablishments } = await supabase
     .from("establishments")
-    .select("id, name, slug, city, province, is_active, created_at")
+    .select("id, name, slug, city, province, is_active, created_at, subscription_status, subscription_expires_at")
     .order("created_at", { ascending: false })
     .limit(8);
 
@@ -274,13 +274,22 @@ export default async function AdminDashboard() {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="pb-3 font-medium">Stabilimento</th>
                     <th className="pb-3 font-medium">Citta</th>
-                    <th className="pb-3 font-medium">Stato</th>
+                    <th className="pb-3 font-medium">Abbonamento</th>
                     <th className="pb-3 font-medium">Registrato</th>
                     <th className="pb-3 text-right font-medium">Azioni</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {recentEstablishments.map((est) => (
+                  {recentEstablishments.map((est) => {
+                    const subStatus = est.subscription_status as string | null;
+                    const expiresAt = est.subscription_expires_at
+                      ? new Date(est.subscription_expires_at)
+                      : null;
+                    const daysLeft = expiresAt
+                      ? Math.ceil((expiresAt.getTime() - Date.now()) / 86400000)
+                      : null;
+
+                    return (
                     <tr key={est.id} className="group">
                       <td className="py-3">
                         <div className="flex items-center gap-3">
@@ -300,15 +309,28 @@ export default async function AdminDashboard() {
                         {est.province ? ` (${est.province})` : ""}
                       </td>
                       <td className="py-3">
-                        {est.is_active ? (
+                        {subStatus === "active" ? (
                           <Badge variant="available" className="gap-1">
                             <CheckCircle2 className="h-3 w-3" />
                             Attivo
                           </Badge>
+                        ) : subStatus === "trial" ? (
+                          <Badge variant="partial" className="gap-1">
+                            <Clock className="h-3 w-3" />
+                            Trial
+                            {daysLeft !== null && daysLeft > 0 && (
+                              <span className="ml-1 font-bold">{daysLeft}g</span>
+                            )}
+                          </Badge>
+                        ) : subStatus === "expired" ? (
+                          <Badge variant="occupied" className="gap-1">
+                            <XCircle className="h-3 w-3" />
+                            Scaduto
+                          </Badge>
                         ) : (
                           <Badge variant="outline" className="gap-1">
                             <Clock className="h-3 w-3" />
-                            Inattivo
+                            {subStatus || "Nessuno"}
                           </Badge>
                         )}
                       </td>
@@ -323,7 +345,8 @@ export default async function AdminDashboard() {
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

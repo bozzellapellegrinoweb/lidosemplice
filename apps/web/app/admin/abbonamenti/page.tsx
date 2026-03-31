@@ -37,8 +37,8 @@ export default async function AdminAbbonamenti() {
   const trial = subs.filter((s) => s.status === "trialing");
   const pastDue = subs.filter((s) => s.status === "past_due" || s.status === "unpaid");
 
-  const mrr = active.length * 4975; // 597/12 = 49.75
-  const arr = active.length * 59700;
+  const mrr = active.length * 4142; // 497/12 ≈ 41.42
+  const arr = active.length * 49700;
 
   const formatCurrency = (cents: number) =>
     (cents / 100).toLocaleString("it-IT", {
@@ -130,6 +130,7 @@ export default async function AdminAbbonamenti() {
                     <th className="px-5 py-3 font-medium">Stato</th>
                     <th className="px-5 py-3 font-medium">Inizio</th>
                     <th className="px-5 py-3 font-medium">Scadenza</th>
+                    <th className="px-5 py-3 font-medium">Giorni rimasti</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -141,6 +142,14 @@ export default async function AdminAbbonamenti() {
                     } | null;
                     const config = statusConfig[sub.status] || statusConfig.cancelled;
                     const StatusIcon = config.icon;
+
+                    // Calcola giorni rimasti (rilevante per trial)
+                    const periodEnd = sub.current_period_end
+                      ? new Date(sub.current_period_end)
+                      : null;
+                    const daysLeft = periodEnd
+                      ? Math.ceil((periodEnd.getTime() - Date.now()) / 86400000)
+                      : null;
 
                     return (
                       <tr key={sub.id} className="hover:bg-muted/50">
@@ -160,7 +169,7 @@ export default async function AdminAbbonamenti() {
                           </div>
                         </td>
                         <td className="px-5 py-3">
-                          <span className="font-medium">597&euro;/anno</span>
+                          <span className="font-medium">497&euro;/anno</span>
                         </td>
                         <td className="px-5 py-3">
                           <Badge variant={config.variant} className="gap-1">
@@ -174,11 +183,30 @@ export default async function AdminAbbonamenti() {
                             : "—"}
                         </td>
                         <td className="px-5 py-3 text-muted-foreground">
-                          {sub.current_period_end
-                            ? new Date(
-                                sub.current_period_end
-                              ).toLocaleDateString("it-IT")
+                          {periodEnd
+                            ? periodEnd.toLocaleDateString("it-IT")
                             : "—"}
+                        </td>
+                        <td className="px-5 py-3">
+                          {sub.status === "trialing" && daysLeft !== null ? (
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              daysLeft <= 0
+                                ? "bg-red-100 text-red-700"
+                                : daysLeft <= 3
+                                  ? "bg-orange-100 text-orange-700"
+                                  : daysLeft <= 7
+                                    ? "bg-amber-100 text-amber-700"
+                                    : "bg-blue-100 text-blue-700"
+                            }`}>
+                              {daysLeft <= 0 ? "Scaduto" : `${daysLeft}g`}
+                            </span>
+                          ) : sub.status === "active" ? (
+                            <span className="text-xs text-muted-foreground">
+                              {daysLeft !== null && daysLeft > 0 ? `${daysLeft}g` : "—"}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </td>
                       </tr>
                     );
