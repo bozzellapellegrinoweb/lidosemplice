@@ -1,17 +1,35 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Save, Building2, Clock, Palette, CreditCard, Globe, ExternalLink,
   Loader2, Check, MapPin, Copy, CheckCircle2, Image as ImageIcon,
-  Upload, X, Star, Sparkles,
+  Upload, X, Star, Sparkles, Banknote, Wallet, Link2, Building,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { AMENITY_GROUPS, DEFAULT_AMENITIES, type AmenitiesData } from "@/lib/amenities";
+
+type PaymentMethods = {
+  cash: { enabled: boolean };
+  stripe: { enabled: boolean };
+  paypal: { enabled: boolean; email: string };
+  satispay: { enabled: boolean; code: string };
+  revolut: { enabled: boolean; tag: string };
+  bonifico: { enabled: boolean; iban: string; intestatario: string };
+};
+
+const DEFAULT_PAYMENT_METHODS: PaymentMethods = {
+  cash: { enabled: true },
+  stripe: { enabled: false },
+  paypal: { enabled: false, email: "" },
+  satispay: { enabled: false, code: "" },
+  revolut: { enabled: false, tag: "" },
+  bonifico: { enabled: false, iban: "", intestatario: "" },
+};
 
 interface EstablishmentSettings {
   id: string;
@@ -38,6 +56,9 @@ interface EstablishmentSettings {
   cover_image_url: string;
   gallery_photo_urls: string[];
   amenities: AmenitiesData;
+  payment_methods: PaymentMethods;
+  stripe_account_id: string;
+  stripe_onboarding_complete: boolean;
 }
 
 // ── Google Places Autocomplete ────────────────────────────────────────────────
@@ -278,6 +299,9 @@ export default function ImpostazioniPage() {
   const params = useParams();
   const slug = params.slug as string;
 
+  const searchParams = useSearchParams();
+  const stripeOk = searchParams.get("stripe_ok") === "1";
+
   const [settings, setSettings] = useState<EstablishmentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -292,7 +316,7 @@ export default function ImpostazioniPage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("establishments")
-        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude, logo_url, cover_image_url, gallery_photo_urls, amenities")
+        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude, logo_url, cover_image_url, gallery_photo_urls, amenities, payment_methods, stripe_account_id, stripe_onboarding_complete")
         .eq("slug", slug)
         .single();
 
@@ -322,6 +346,9 @@ export default function ImpostazioniPage() {
           cover_image_url: data.cover_image_url || "",
           gallery_photo_urls: data.gallery_photo_urls || [],
           amenities: { ...DEFAULT_AMENITIES, ...(data.amenities || {}) },
+          payment_methods: { ...DEFAULT_PAYMENT_METHODS, ...(data.payment_methods || {}) },
+          stripe_account_id: data.stripe_account_id || "",
+          stripe_onboarding_complete: data.stripe_onboarding_complete || false,
         });
       }
       setLoading(false);
@@ -346,6 +373,22 @@ export default function ImpostazioniPage() {
   function updateField(field: keyof EstablishmentSettings, value: string | boolean | string[]) {
     if (!settings) return;
     setSettings({ ...settings, [field]: value });
+    setSaved(false);
+  }
+
+  function updatePaymentMethod<K extends keyof PaymentMethods>(
+    method: K,
+    field: keyof PaymentMethods[K],
+    value: unknown
+  ) {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      payment_methods: {
+        ...settings.payment_methods,
+        [method]: { ...settings.payment_methods[method], [field]: value },
+      },
+    });
     setSaved(false);
   }
 
@@ -380,8 +423,9 @@ export default function ImpostazioniPage() {
         check_out_time: settings.check_out_time,
         primary_color: settings.primary_color,
         secondary_color: settings.secondary_color,
-        paypal_email: settings.paypal_email || null,
-        paypal_enabled: settings.paypal_enabled,
+        paypal_email: settings.payment_methods.paypal.email || null,
+        paypal_enabled: settings.payment_methods.paypal.enabled,
+        payment_methods: settings.payment_methods,
         google_place_id: settings.google_place_id || null,
         latitude: settings.latitude ? parseFloat(settings.latitude) : null,
         longitude: settings.longitude ? parseFloat(settings.longitude) : null,
@@ -784,38 +828,202 @@ export default function ImpostazioniPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <CreditCard className="h-5 w-5" />
-            Metodi di pagamento
+            Metodi di pagamento accettati dai clienti
           </CardTitle>
+          <p className="text-sm text-muted-foreground">Scegli quali metodi mostrare nel carrello di prenotazione.</p>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border p-4">
-            <div>
-              <p className="font-medium">Stripe</p>
-              <p className="text-sm text-muted-foreground">Carte di credito/debito.</p>
+        <CardContent className="space-y-3">
+
+          {stripeOk && (
+            <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Stripe collegato con successo!
             </div>
-            <Button variant="brand">
-              <ExternalLink className="h-4 w-4" />
-              Collega Stripe
-            </Button>
+          )}
+
+          {/* Contante */}
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+                <Banknote className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="font-medium">Contante in loco</p>
+                <p className="text-sm text-muted-foreground">Il cliente paga all&apos;arrivo in spiaggia.</p>
+              </div>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center">
+              <input type="checkbox" className="peer sr-only"
+                checked={settings.payment_methods.cash.enabled}
+                onChange={(e) => updatePaymentMethod("cash", "enabled", e.target.checked)} />
+              <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
+            </label>
           </div>
+
+          {/* Stripe */}
           <div className="rounded-lg border p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">PayPal</p>
-                <p className="text-sm text-muted-foreground">Inserisci la tua email PayPal Business.</p>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#635bff]/10">
+                  <svg className="h-5 w-5 text-[#635bff]" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.591-7.305z"/>
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-medium">Carta di credito / debito</p>
+                  <p className="text-sm text-muted-foreground">Visa, Mastercard, Google Pay, Apple Pay via Stripe.</p>
+                </div>
               </div>
-              <label className="relative inline-flex cursor-pointer items-center">
-                <input type="checkbox" className="peer sr-only" checked={settings.paypal_enabled} onChange={(e) => setSettings({ ...settings, paypal_enabled: e.target.checked })} />
-                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
-              </label>
+              {settings.stripe_onboarding_complete ? (
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input type="checkbox" className="peer sr-only"
+                    checked={settings.payment_methods.stripe.enabled}
+                    onChange={(e) => updatePaymentMethod("stripe", "enabled", e.target.checked)} />
+                  <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
+                </label>
+              ) : (
+                <a
+                  href={`/api/stripe/connect/start?id=${settings.id}&slug=${settings.slug}`}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#635bff] px-4 py-2 text-sm font-semibold text-white hover:bg-[#5147e5] transition"
+                >
+                  <Link2 className="h-4 w-4" />
+                  Collega Stripe
+                </a>
+              )}
             </div>
-            {settings.paypal_enabled && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Email PayPal Business</label>
-                <Input type="email" placeholder="pagamenti@tuolido.it" value={settings.paypal_email} onChange={(e) => updateField("paypal_email", e.target.value)} />
+            {settings.stripe_onboarding_complete && (
+              <div className="flex items-center gap-2 text-xs text-green-600">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Account Stripe collegato — i pagamenti arrivano direttamente a te.
               </div>
             )}
           </div>
+
+          {/* PayPal */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0070ba]/10">
+                  <Wallet className="h-5 w-5 text-[#0070ba]" />
+                </div>
+                <div>
+                  <p className="font-medium">PayPal</p>
+                  <p className="text-sm text-muted-foreground">Il cliente paga tramite il proprio account PayPal.</p>
+                </div>
+              </div>
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" className="peer sr-only"
+                  checked={settings.payment_methods.paypal.enabled}
+                  onChange={(e) => updatePaymentMethod("paypal", "enabled", e.target.checked)} />
+                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
+              </label>
+            </div>
+            {settings.payment_methods.paypal.enabled && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Email PayPal Business</label>
+                <Input type="email" placeholder="pagamenti@tuolido.it"
+                  value={settings.payment_methods.paypal.email}
+                  onChange={(e) => updatePaymentMethod("paypal", "email", e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          {/* Satispay */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#e30613]/10">
+                  <span className="text-sm font-black text-[#e30613]">S</span>
+                </div>
+                <div>
+                  <p className="font-medium">Satispay</p>
+                  <p className="text-sm text-muted-foreground">Pagamento immediato dal cellulare. Popolarissimo in Italia.</p>
+                </div>
+              </div>
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" className="peer sr-only"
+                  checked={settings.payment_methods.satispay.enabled}
+                  onChange={(e) => updatePaymentMethod("satispay", "enabled", e.target.checked)} />
+                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
+              </label>
+            </div>
+            {settings.payment_methods.satispay.enabled && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Codice Satispay Business</label>
+                <Input placeholder="es. LIDO-BELLO o link satispay.com/..."
+                  value={settings.payment_methods.satispay.code}
+                  onChange={(e) => updatePaymentMethod("satispay", "code", e.target.value)} />
+                <p className="mt-1 text-xs text-muted-foreground">Trovi il codice nelle impostazioni del tuo account Satispay Business.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Revolut */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/5">
+                  <span className="text-sm font-black text-black">R</span>
+                </div>
+                <div>
+                  <p className="font-medium">RevolutPay</p>
+                  <p className="text-sm text-muted-foreground">Pagamento rapido con Revolut.</p>
+                </div>
+              </div>
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" className="peer sr-only"
+                  checked={settings.payment_methods.revolut.enabled}
+                  onChange={(e) => updatePaymentMethod("revolut", "enabled", e.target.checked)} />
+                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
+              </label>
+            </div>
+            {settings.payment_methods.revolut.enabled && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Tag o link Revolut</label>
+                <Input placeholder="es. @tuolido o revolut.me/tuolido"
+                  value={settings.payment_methods.revolut.tag}
+                  onChange={(e) => updatePaymentMethod("revolut", "tag", e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          {/* Bonifico */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50">
+                  <Building className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-medium">Bonifico bancario</p>
+                  <p className="text-sm text-muted-foreground">Il cliente fa un bonifico prima dell&apos;arrivo.</p>
+                </div>
+              </div>
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" className="peer sr-only"
+                  checked={settings.payment_methods.bonifico.enabled}
+                  onChange={(e) => updatePaymentMethod("bonifico", "enabled", e.target.checked)} />
+                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
+              </label>
+            </div>
+            {settings.payment_methods.bonifico.enabled && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">IBAN</label>
+                  <Input placeholder="IT60 X054 2811 1010 0000 0123 456"
+                    value={settings.payment_methods.bonifico.iban}
+                    onChange={(e) => updatePaymentMethod("bonifico", "iban", e.target.value)} />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Intestato a</label>
+                  <Input placeholder="Mario Rossi / Lido Bello srl"
+                    value={settings.payment_methods.bonifico.intestatario}
+                    onChange={(e) => updatePaymentMethod("bonifico", "intestatario", e.target.value)} />
+                </div>
+              </div>
+            )}
+          </div>
+
         </CardContent>
       </Card>
 
