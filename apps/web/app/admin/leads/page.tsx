@@ -1,21 +1,42 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   MapPin,
   RefreshCw,
-  ExternalLink,
   CheckCircle2,
   Loader2,
   XCircle,
   Clock,
   Database,
   Play,
+  Download,
+  Search,
+  Mail,
+  Globe,
+  Phone,
 } from "lucide-react";
 import { COMUNI_COSTIERI } from "@/lib/comuni-costieri";
+
+interface Lead {
+  id: string;
+  scraped_at: string;
+  nome: string | null;
+  citta: string | null;
+  cap: string | null;
+  indirizzo: string | null;
+  telefono: string | null;
+  email: string | null;
+  sito_web: string | null;
+  rating: number | null;
+  recensioni: number | null;
+  categoria: string | null;
+  google_maps_url: string | null;
+}
 
 interface ApifyRun {
   id: string;
@@ -25,39 +46,82 @@ interface ApifyRun {
   stats?: { itemCount?: number };
 }
 
-interface DatasetInfo {
-  itemCount: number;
-}
-
 export default function AdminLeadsPage() {
+  // Scraper status
   const [runs, setRuns] = useState<ApifyRun[]>([]);
-  const [dataset, setDataset] = useState<DatasetInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [statusLoading, setStatusLoading] = useState(true);
   const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
-  const fetchStatus = async () => {
-    setLoading(true);
-    setError(null);
+  // Leads table
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [leadsLoading, setLeadsLoading] = useState(true);
+  const [leadsError, setLeadsError] = useState<string | null>(null);
+
+  // Filters
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [draftSearch, setDraftSearch] = useState("");
+
+  const pageSize = 50;
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  // ---------- Apify status ----------
+  const fetchStatus = useCallback(async () => {
+    setStatusLoading(true);
     try {
-      const token = process.env.NEXT_PUBLIC_APIFY_TOKEN;
-      // Le chiamate Apify vengono fatte server-side tramite la nostra API
       const res = await fetch("/api/leads/status");
-      if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setRuns(data.runs ?? []);
-      setDataset(data.dataset ?? null);
-    } catch (e) {
-      setError(String(e));
     } finally {
-      setLoading(false);
+      setStatusLoading(false);
     }
-  };
+  }, []);
+
+  // ---------- Leads ----------
+  const fetchLeads = useCallback(async (p: number, q: string, from: string, to: string) => {
+    setLeadsLoading(true);
+    setLeadsError(null);
+    try {
+      const params = new URLSearchParams({ page: String(p) });
+      if (q) params.set("q", q);
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+      const res = await fetch(`/api/leads/list?${params}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Errore");
+      setLeads(data.data ?? []);
+      setTotalCount(data.count ?? 0);
+    } catch (e) {
+      setLeadsError(String(e));
+    } finally {
+      setLeadsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchStatus();
-  }, []);
+  }, [fetchStatus]);
+
+  useEffect(() => {
+    fetchLeads(page, search, dateFrom, dateTo);
+  }, [page, search, dateFrom, dateTo, fetchLeads]);
+
+  const applySearch = () => {
+    setSearch(draftSearch);
+    setPage(1);
+  };
+
+  const resetFilters = () => {
+    setDraftSearch("");
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setPage(1);
+  };
 
   const handleTrigger = () => {
     setTriggerMsg(null);
@@ -77,29 +141,34 @@ export default function AdminLeadsPage() {
     });
   };
 
+  const handleExport = () => {
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (dateFrom) params.set("from", dateFrom);
+    if (dateTo) params.set("to", dateTo);
+    window.location.href = `/api/leads/export?${params}`;
+  };
+
   const lastRun = runs[0] ?? null;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Lead Generation</h1>
           <p className="text-muted-foreground">
-            Scraping automatico di stabilimenti balneari su Google Maps ({COMUNI_COSTIERI.length} comuni costieri)
+            {totalCount.toLocaleString("it-IT")} stabilimenti balneari · {COMUNI_COSTIERI.length} comuni costieri
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={fetchStatus} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" onClick={fetchStatus} disabled={statusLoading}>
+            <RefreshCw className={`h-4 w-4 ${statusLoading ? "animate-spin" : ""}`} />
             Aggiorna
           </Button>
-          <Button onClick={handleTrigger} disabled={isPending} className="gap-2">
-            {isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4" />
-            )}
-            Avvia ora
+          <Button onClick={handleTrigger} disabled={isPending} size="sm" className="gap-2">
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            Avvia scraping
           </Button>
         </div>
       </div>
@@ -110,22 +179,14 @@ export default function AdminLeadsPage() {
         </div>
       )}
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {/* Cards KPI */}
+      {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Leads nel dataset</p>
-                <p className="mt-1 text-3xl font-bold">
-                  {dataset ? dataset.itemCount.toLocaleString("it-IT") : "—"}
-                </p>
+                <p className="text-sm text-muted-foreground">Leads salvati</p>
+                <p className="mt-1 text-3xl font-bold">{totalCount.toLocaleString("it-IT")}</p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-azure/10">
                 <Database className="h-6 w-6 text-brand-azure" />
@@ -178,93 +239,215 @@ export default function AdminLeadsPage() {
         </Card>
       </div>
 
-      {/* Info integrazione Google Sheets */}
-      <Card className="border-brand-cyan/30 bg-brand-navy/5">
-        <CardContent className="p-5">
-          <div className="flex items-start gap-3">
-            <ExternalLink className="mt-0.5 h-5 w-5 shrink-0 text-brand-azure" />
-            <div className="space-y-1">
-              <p className="font-medium">Integrazione Google Sheets</p>
-              <p className="text-sm text-muted-foreground">
-                Il dataset <strong>lidofacile-leads</strong> su Apify viene aggiornato ogni giorno alle 03:00.
-                Per collegarlo a Google Sheets vai su{" "}
-                <a
-                  href="https://console.apify.com/storage/datasets"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-brand-azure underline"
-                >
-                  Apify → Storage → Datasets
-                </a>
-                , apri <strong>lidofacile-leads</strong> e clicca <strong>Integrations → Google Sheets</strong>.
-              </p>
+      {/* Filtri + Export */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex min-w-[240px] flex-1 items-center gap-2">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <Input
+                placeholder="Cerca nome, città, categoria, email…"
+                value={draftSearch}
+                onChange={(e) => setDraftSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && applySearch()}
+                className="h-9"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">Dal</span>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+                className="h-9 w-36"
+              />
+              <span className="text-sm text-muted-foreground">al</span>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+                className="h-9 w-36"
+              />
+            </div>
+            <Button size="sm" onClick={applySearch} className="gap-1">
+              <Search className="h-4 w-4" />
+              Cerca
+            </Button>
+            {(search || dateFrom || dateTo) && (
+              <Button size="sm" variant="outline" onClick={resetFilters}>
+                Reset
+              </Button>
+            )}
+            <div className="ml-auto">
+              <Button size="sm" variant="outline" onClick={handleExport} className="gap-2">
+                <Download className="h-4 w-4" />
+                Esporta CSV
+              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Storico run */}
+      {/* Tabella leads */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Storico run</CardTitle>
+        <CardHeader className="pb-0">
+          <CardTitle className="text-base">
+            {search || dateFrom || dateTo
+              ? `${totalCount.toLocaleString("it-IT")} risultati filtrati`
+              : `Tutti i leads · pagina ${page} di ${totalPages || 1}`}
+          </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
+        <CardContent className="p-0 pt-3">
+          {leadsError && (
+            <div className="mx-5 mb-3 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {leadsError}
+            </div>
+          )}
+          {leadsLoading ? (
+            <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : runs.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              Nessun run trovato. Clicca &quot;Avvia ora&quot; per iniziare il primo scraping.
+          ) : leads.length === 0 ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              {totalCount === 0
+                ? "Nessun lead ancora. Clicca \"Avvia scraping\" per iniziare."
+                : "Nessun risultato per i filtri selezionati."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-5 py-3 font-medium">ID Run</th>
-                    <th className="px-5 py-3 font-medium">Avviato</th>
-                    <th className="px-5 py-3 font-medium">Terminato</th>
-                    <th className="px-5 py-3 font-medium">Leads</th>
-                    <th className="px-5 py-3 font-medium">Stato</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {runs.map((run) => (
-                    <tr key={run.id} className="hover:bg-muted/50">
-                      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">
-                        {run.id.slice(0, 8)}…
-                      </td>
-                      <td className="px-5 py-3">
-                        {new Date(run.startedAt).toLocaleDateString("it-IT", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">
-                        {run.finishedAt
-                          ? new Date(run.finishedAt).toLocaleDateString("it-IT", {
-                              day: "2-digit",
-                              month: "short",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "—"}
-                      </td>
-                      <td className="px-5 py-3 font-medium">
-                        {run.stats?.itemCount?.toLocaleString("it-IT") ?? "—"}
-                      </td>
-                      <td className="px-5 py-3">
-                        <RunStatusBadge status={run.status} />
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-3 font-medium">Nome</th>
+                      <th className="px-4 py-3 font-medium">Città</th>
+                      <th className="px-4 py-3 font-medium">Categoria</th>
+                      <th className="px-4 py-3 font-medium">Telefono</th>
+                      <th className="px-4 py-3 font-medium">Email</th>
+                      <th className="px-4 py-3 font-medium">Sito</th>
+                      <th className="px-4 py-3 font-medium text-right">Rating</th>
+                      <th className="px-4 py-3 font-medium text-right">Rec.</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y">
+                    {leads.map((lead) => (
+                      <tr key={lead.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-2.5 font-medium max-w-[200px]">
+                          <div className="truncate" title={lead.nome ?? ""}>
+                            {lead.google_maps_url ? (
+                              <a
+                                href={lead.google_maps_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-brand-azure hover:underline"
+                              >
+                                {lead.nome || "—"}
+                              </a>
+                            ) : (
+                              lead.nome || "—"
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">
+                          {lead.citta || "—"} {lead.cap ? `(${lead.cap})` : ""}
+                        </td>
+                        <td className="px-4 py-2.5 max-w-[160px]">
+                          <div className="truncate text-xs text-muted-foreground" title={lead.categoria ?? ""}>
+                            {lead.categoria || "—"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          {lead.telefono ? (
+                            <a
+                              href={`tel:${lead.telefono}`}
+                              className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                            >
+                              <Phone className="h-3 w-3" />
+                              {lead.telefono}
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground/50">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 max-w-[200px]">
+                          {lead.email ? (
+                            <a
+                              href={`mailto:${lead.email.split(",")[0].trim()}`}
+                              className="flex items-center gap-1 truncate text-brand-azure hover:underline"
+                              title={lead.email}
+                            >
+                              <Mail className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{lead.email}</span>
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground/50">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {lead.sito_web ? (
+                            <a
+                              href={lead.sito_web}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                            >
+                              <Globe className="h-3 w-3 shrink-0" />
+                              <span className="max-w-[120px] truncate text-xs">
+                                {lead.sito_web.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                              </span>
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground/50">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          {lead.rating != null ? (
+                            <span className="font-medium">{Number(lead.rating).toFixed(1)}</span>
+                          ) : (
+                            <span className="text-muted-foreground/50">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                          {lead.recensioni?.toLocaleString("it-IT") ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Paginazione */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <p className="text-sm text-muted-foreground">
+                    {((page - 1) * pageSize + 1).toLocaleString("it-IT")}–
+                    {Math.min(page * pageSize, totalCount).toLocaleString("it-IT")} di{" "}
+                    {totalCount.toLocaleString("it-IT")}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page <= 1 || leadsLoading}
+                      onClick={() => setPage((p) => p - 1)}
+                    >
+                      ← Prec
+                    </Button>
+                    <span className="px-3 text-sm">
+                      {page} / {totalPages}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page >= totalPages || leadsLoading}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Succ →
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
