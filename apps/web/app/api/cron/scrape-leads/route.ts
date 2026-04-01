@@ -49,7 +49,7 @@ export async function startApifyRun(apifyToken: string): Promise<{ ok: true; run
           includeHistogram: false,
           includeOpeningHours: false,
           includePeopleAlsoSearch: false,
-          outputNamedDataset: "lidofacile-leads",
+          scrapeContacts: true,
           scrapeDirectories: false,
         }),
       }
