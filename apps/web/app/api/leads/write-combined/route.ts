@@ -87,6 +87,12 @@ export async function POST(req: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  // Svuota la tabella prima di ogni run (dati sempre freschi, niente duplicati)
+  const { error: truncateError } = await supabase.from("leads").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  if (truncateError) {
+    return Response.json({ error: `Errore svuotamento: ${truncateError.message}` }, { status: 500 });
+  }
+
   // Inserisci in batch da 500
   const BATCH = 500;
   let inserted = 0;
