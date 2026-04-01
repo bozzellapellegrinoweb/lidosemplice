@@ -13,6 +13,7 @@ import {
   Shield,
   Menu,
   X,
+  MapPin,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -22,6 +23,7 @@ const navigation = [
   { label: "Abbonamenti", href: "/admin/abbonamenti", icon: CreditCard },
   { label: "Utenti", href: "/admin/utenti", icon: Users },
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
+  { label: "Lead Generation", href: "/admin/leads", icon: MapPin },
   { label: "Impostazioni", href: "/admin/impostazioni", icon: Settings },
 ];
 
