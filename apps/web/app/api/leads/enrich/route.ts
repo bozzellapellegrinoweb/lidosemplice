@@ -44,9 +44,9 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, message: "Nessun sito web trovato" });
   }
 
-  // Avvia Website Emails Scraper
+  // Avvia Website Email Scraper (thenetaji/website-email-scraper)
   const runRes = await fetch(
-    "https://api.apify.com/v2/acts/3C5pf0e2XqFhVcSSj/runs?waitForFinish=0",
+    "https://api.apify.com/v2/acts/UwSrlU3InJgbBlD2s/runs?waitForFinish=0",
     {
       method: "POST",
       headers: {
@@ -55,9 +55,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         startUrls: urls,
-        maxDepth: 1,
-        maxPagesPerDomain: 3,
-        sameDomain: true,
+        maxDepth: 2,
       }),
     }
   );
