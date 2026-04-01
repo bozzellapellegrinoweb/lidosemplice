@@ -1,9 +1,18 @@
 import { COMUNI_COSTIERI } from "@/lib/comuni-costieri";
 
+const BATCH_SIZE = 50; // ~1000 leads/giorno (50 comuni × max 20 risultati)
+
 export async function startApifyRun(
   apifyToken: string
 ): Promise<{ ok: true; runId: string } | { ok: false; error: string }> {
-  const searchQueries = COMUNI_COSTIERI.map((c) => `stabilimento balneare ${c}`);
+  // Rotazione giornaliera: ogni giorno scrapa il batch successivo
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+  const numBatches = Math.ceil(COMUNI_COSTIERI.length / BATCH_SIZE);
+  const batchIndex = dayOfYear % numBatches;
+  const start = batchIndex * BATCH_SIZE;
+  const batch = COMUNI_COSTIERI.slice(start, start + BATCH_SIZE);
+
+  const searchQueries = batch.map((c) => `stabilimento balneare ${c}`);
 
   try {
     const res = await fetch(
