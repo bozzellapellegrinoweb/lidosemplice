@@ -24,7 +24,8 @@
         "PAYPAL_SECRET",
         "NEXT_PUBLIC_PAYPAL_CLIENT_ID",
         "CRON_SECRET",
-        "ANTHROPIC_API_KEY"
+        "ANTHROPIC_API_KEY",
+        "APIFY_API_TOKEN"
       ]
     },
     "lint": {

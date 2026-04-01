@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { startApifyRun } from "@/app/api/cron/scrape-leads/route";
+import { startApifyRun } from "@/lib/apify";
 
 /**
  * POST /api/leads/trigger
