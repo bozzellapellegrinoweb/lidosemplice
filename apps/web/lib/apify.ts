@@ -22,7 +22,7 @@ export async function startApifyRun(
           includeHistogram: false,
           includeOpeningHours: false,
           includePeopleAlsoSearch: false,
-          scrapeContacts: true,
+          scrapeContacts: false,
           scrapeDirectories: false,
         }),
       }
