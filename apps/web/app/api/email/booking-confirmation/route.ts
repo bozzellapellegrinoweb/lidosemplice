@@ -109,6 +109,27 @@ export async function POST(request: Request) {
     )
     .join("");
 
+  const duration = booking.duration as string;
+  const formatDate = (d: string) =>
+    new Date(d + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  const durationLabel =
+    duration === "half_day_morning"
+      ? "Mezza giornata — Mattina 🌅"
+      : duration === "half_day_afternoon"
+        ? "Mezza giornata — Pomeriggio 🌇"
+        : (() => {
+            const days = Math.max(1, Math.ceil((new Date(booking.end_date).getTime() - new Date(booking.start_date).getTime()) / 86400000) + 1);
+            return days === 1 ? "Giornata intera ☀️" : `${days} giorni ☀️`;
+          })();
+
+  const dateLabel =
+    duration === "half_day_morning" || duration === "half_day_afternoon"
+      ? formatDate(booking.start_date)
+      : booking.start_date === booking.end_date
+        ? formatDate(booking.start_date)
+        : `${formatDate(booking.start_date)} → ${formatDate(booking.end_date)}`;
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -122,7 +143,8 @@ export async function POST(request: Request) {
       <p>La tua prenotazione presso <strong>${est.name}</strong> è confermata.</p>
 
       <div style="background: #f8f9fa; padding: 16px; border-radius: 8px; margin: 16px 0;">
-        <p style="margin: 4px 0;"><strong>📅 Date:</strong> ${booking.start_date} → ${booking.end_date}</p>
+        <p style="margin: 4px 0;"><strong>📅 Data:</strong> ${dateLabel}</p>
+        <p style="margin: 4px 0;"><strong>⏱️ Durata:</strong> ${durationLabel}</p>
         <p style="margin: 4px 0;"><strong>⏰ Orario:</strong> ${est.check_in_time} - ${est.check_out_time}</p>
         <p style="margin: 4px 0;"><strong>📍 Indirizzo:</strong> ${est.address || ""}, ${est.city || ""}</p>
         ${est.phone ? `<p style="margin: 4px 0;"><strong>📞 Telefono:</strong> <a href="tel:${est.phone}" style="color: #2563EB;">${est.phone}</a></p>` : ""}

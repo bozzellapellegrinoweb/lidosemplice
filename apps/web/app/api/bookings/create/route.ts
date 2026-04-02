@@ -35,6 +35,8 @@ export async function POST(req: Request) {
     guest_phone,
     start_date,
     end_date,
+    duration_type,
+    half_period,
     payment_method,
     total_cents,
     items,
@@ -46,11 +48,20 @@ export async function POST(req: Request) {
     guest_phone?: string;
     start_date: string;
     end_date: string;
+    duration_type?: string;
+    half_period?: string;
     payment_method: string;
     total_cents: number;
     items: BookingItem[];
     services: BookingService[];
   } = body;
+
+  const duration =
+    duration_type === "half_day"
+      ? half_period === "afternoon"
+        ? "half_day_afternoon"
+        : "half_day_morning"
+      : "full_day";
 
   if (!establishment_id || !guest_name || !start_date || !end_date || !payment_method) {
     return Response.json({ error: "Parametri mancanti" }, { status: 400 });
@@ -79,7 +90,7 @@ export async function POST(req: Request) {
       guest_phone: guest_phone || null,
       start_date,
       end_date,
-      duration: "full_day",
+      duration,
       status,
       payment_method,
       total_cents,
