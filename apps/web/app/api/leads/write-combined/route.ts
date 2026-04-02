@@ -58,16 +58,16 @@ export async function POST(req: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // Svuota prima (niente duplicati tra run diversi)
-  await supabase.from("leads").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
-  // Inserisci in batch da 500
+  // Upsert per google_maps_url — accumula senza duplicati
   const BATCH = 500;
   let inserted = 0;
   for (let i = 0; i < rows.length; i += BATCH) {
-    const { error } = await supabase.from("leads").insert(rows.slice(i, i + BATCH));
+    const { error } = await supabase.from("leads").upsert(
+      rows.slice(i, i + BATCH),
+      { onConflict: "google_maps_url", ignoreDuplicates: false }
+    );
     if (error) {
-      return Response.json({ error: `Errore inserimento: ${error.message}` }, { status: 500 });
+      return Response.json({ error: `Errore upsert: ${error.message}` }, { status: 500 });
     }
     inserted += rows.slice(i, i + BATCH).length;
   }
