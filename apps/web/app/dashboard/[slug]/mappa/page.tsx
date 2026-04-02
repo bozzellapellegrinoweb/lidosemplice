@@ -148,6 +148,7 @@ export default function MappaPage() {
   const [newZoneName, setNewZoneName] = useState("");
   const [newZoneType, setNewZoneType] = useState("spiaggia");
   const [addElementType, setAddElementType] = useState("umbrella");
+  const [addElementCount, setAddElementCount] = useState(1);
   const [hasChanges, setHasChanges] = useState(false);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -158,6 +159,16 @@ export default function MappaPage() {
     loadMaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  // Avvisa il browser prima di abbandonare con modifiche non salvate
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!hasChanges) return;
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasChanges]);
 
   // When active map changes, reload rows/elements
   useEffect(() => {
@@ -872,11 +883,24 @@ export default function MappaPage() {
                                       <option key={t.id} value={t.id}>{t.label}</option>
                                     ))}
                                   </select>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={200}
+                                    value={addElementCount}
+                                    onChange={(e) => setAddElementCount(Math.max(1, Math.min(200, parseInt(e.target.value) || 1)))}
+                                    className="h-7 w-14 rounded border bg-background px-1.5 text-xs text-center"
+                                    title="Quantità"
+                                  />
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     className="h-7 text-xs"
-                                    onClick={() => addElementToRow(row.id, row.row_number, addElementType)}
+                                    onClick={async () => {
+                                      for (let i = 0; i < addElementCount; i++) {
+                                        await addElementToRow(row.id, row.row_number, addElementType);
+                                      }
+                                    }}
                                   >
                                     <Plus className="h-3 w-3" />
                                     Aggiungi

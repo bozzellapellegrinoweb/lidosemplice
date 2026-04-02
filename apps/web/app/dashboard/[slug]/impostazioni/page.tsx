@@ -82,9 +82,8 @@ function AddressAutocomplete({
   onSelect: (result: PlaceResult) => void;
   onChange: (val: string) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const initedRef = useRef(false);
-  // Usiamo ref per evitare di reinizializzare quando cambiano le callback
   const onSelectRef = useRef(onSelect);
   const onChangeRef = useRef(onChange);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
@@ -94,53 +93,46 @@ function AddressAutocomplete({
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
     if (!apiKey) return;
 
-    async function doInit() {
-      if (initedRef.current || !containerRef.current) return;
+    function doInit() {
+      if (initedRef.current || !inputRef.current) return;
+      if (!window.google?.maps?.places) return;
       initedRef.current = true;
       try {
-        // PlaceAutocompleteElement è in google.maps.places (libraries=places)
-        // È la versione nuova, non deprecated, per account post-marzo 2025
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const PAE = (window.google.maps.places as any).PlaceAutocompleteElement;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const el = new PAE({ componentRestrictions: { country: "it" } });
-        containerRef.current.appendChild(el);
-
-        el.addEventListener("gmp-select", async (e: Event) => {
+        const ac = new (window.google.maps.places as any).Autocomplete(inputRef.current, {
+          componentRestrictions: { country: "it" },
+          fields: ["address_components", "formatted_address", "geometry", "place_id"],
+        });
+        ac.addListener("place_changed", () => {
+          const place = ac.getPlace();
+          if (!place?.address_components) return;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const place = (e as any).placePrediction?.toPlace();
-          if (!place) return;
-          await place.fetchFields({ fields: ["addressComponents", "formattedAddress", "location", "id"] });
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const comps: any[] = place.addressComponents || [];
           const get = (type: string, short = false): string => {
-            const c = comps.find((x) => x.types?.includes(type));
-            return (short ? c?.shortText : c?.longText) || "";
+            const c = place.address_components.find((x: any) => x.types?.includes(type));
+            return (short ? c?.short_name : c?.long_name) || "";
           };
           const route = get("route");
           const num = get("street_number");
-          const address = route ? `${route}${num ? ` ${num}` : ""}` : (place.formattedAddress || "");
+          const address = route ? `${route}${num ? ` ${num}` : ""}` : (place.formatted_address || "");
           onChangeRef.current(address);
           onSelectRef.current({
             address,
             city: get("locality") || get("administrative_area_level_3"),
             province: get("administrative_area_level_2", true),
             cap: get("postal_code"),
-            latitude: place.location?.lat().toString() || "",
-            longitude: place.location?.lng().toString() || "",
-            google_place_id: place.id || "",
+            latitude: place.geometry?.location?.lat().toString() || "",
+            longitude: place.geometry?.location?.lng().toString() || "",
+            google_place_id: place.place_id || "",
           });
         });
       } catch (err) {
-        console.error("PlaceAutocomplete init failed:", err);
+        console.error("Autocomplete init failed:", err);
         initedRef.current = false;
       }
     }
 
-    // Se Places è già caricato, init diretto
     if (window.google?.maps?.places) { doInit(); return; }
 
-    // Se lo script è già in pagina, aspetta che finisca
     if (document.getElementById("gm-script")) {
       const iv = setInterval(() => {
         if (window.google?.maps?.places) { clearInterval(iv); doInit(); }
@@ -148,7 +140,6 @@ function AddressAutocomplete({
       return () => clearInterval(iv);
     }
 
-    // Carica lo script con libraries=places e callback per garantire che places sia pronto
     (window as unknown as Record<string, unknown>).__gmPlacesReady = doInit;
     const script = document.createElement("script");
     script.id = "gm-script";
@@ -159,20 +150,13 @@ function AddressAutocomplete({
   }, []);
 
   return (
-    <div className="space-y-1">
-      {/* Input manuale per visualizzare/modificare il valore corrente */}
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Es. Via Roma 1, Rimini"
-        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      />
-      {/* PlaceAutocompleteElement viene montato qui e compila i campi alla selezione */}
-      <div
-        ref={containerRef}
-        className="[&>gmp-placeautocomplete]:w-full [&>gmp-placeautocomplete]:block"
-      />
-    </div>
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="Es. Via Roma 1, Rimini"
+      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    />
   );
 }
 
@@ -306,7 +290,18 @@ export default function ImpostazioniPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState("");
+
+  // Avvisa il browser se si tenta di abbandonare la pagina con modifiche non salvate
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
   const [copied, setCopied] = useState(false);
   const [galleryUploading, setGalleryUploading] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -377,6 +372,7 @@ export default function ImpostazioniPage() {
     if (!settings) return;
     setSettings({ ...settings, [field]: value });
     setSaved(false);
+    setIsDirty(true);
   }
 
   function updatePaymentMethod<K extends keyof PaymentMethods>(
@@ -474,6 +470,7 @@ export default function ImpostazioniPage() {
       setError("Errore nel salvataggio: " + updateError.message);
     } else {
       setSaved(true);
+      setIsDirty(false);
       setTimeout(() => setSaved(false), 3000);
     }
     setSaving(false);

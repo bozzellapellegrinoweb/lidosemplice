@@ -125,6 +125,15 @@ export async function POST(request: Request) {
         <p style="margin: 4px 0;"><strong>📅 Date:</strong> ${booking.start_date} → ${booking.end_date}</p>
         <p style="margin: 4px 0;"><strong>⏰ Orario:</strong> ${est.check_in_time} - ${est.check_out_time}</p>
         <p style="margin: 4px 0;"><strong>📍 Indirizzo:</strong> ${est.address || ""}, ${est.city || ""}</p>
+        ${est.phone ? `<p style="margin: 4px 0;"><strong>📞 Telefono:</strong> <a href="tel:${est.phone}" style="color: #2563EB;">${est.phone}</a></p>` : ""}
+        ${est.email ? `<p style="margin: 4px 0;"><strong>✉️ Email:</strong> <a href="mailto:${est.email}" style="color: #2563EB;">${est.email}</a></p>` : ""}
+        <p style="margin: 8px 0 4px 0;">
+          <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent((est.address || "") + ", " + (est.city || ""))}"
+             target="_blank"
+             style="display: inline-block; background: #2563EB; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 500;">
+            🗺️ Indicazioni stradali
+          </a>
+        </p>
       </div>
 
       <h3 style="margin-top: 24px;">Dettagli prenotazione</h3>
@@ -146,9 +155,7 @@ export async function POST(request: Request) {
       ` : ""}
 
       <p style="color: #666; font-size: 14px; margin-top: 24px;">
-        Per qualsiasi domanda, contattaci:<br>
-        ${est.phone ? `📞 ${est.phone}<br>` : ""}
-        ${est.email ? `✉️ ${est.email}` : ""}
+        Per qualsiasi domanda siamo a tua disposizione.
       </p>
 
       <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
