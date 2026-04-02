@@ -68,9 +68,9 @@ interface BookingStatus {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  available: "bg-available/15 border-available/40 text-available hover:bg-available/25",
-  occupied: "bg-partial/15 border-partial/40 text-partial",
-  checked_in: "bg-brand-azure/15 border-brand-azure/40 text-brand-azure",
+  available: "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 shadow-sm",
+  occupied: "bg-amber-50 border-amber-200 text-amber-700 shadow-sm",
+  checked_in: "bg-blue-50 border-blue-200 text-blue-700 shadow-sm",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -446,66 +446,37 @@ export default function MappaPage() {
     setNewRowLabel("");
   }
 
-  async function addElementToRow(rowId: string, rowNumber: number, elementType: string = "umbrella") {
+  async function addElementToRow(rowId: string, rowNumber: number, elementType: string = "umbrella", count = 1) {
     if (!activeMapId) return;
     const supabase = createClient();
     const letter = rowLetters[rowNumber - 1] || `R${rowNumber}`;
-    const rowElements = elements.filter((e) => e.map_row_id === rowId);
-    const nextNum = rowElements.length + 1;
+    const existing = elements.filter((e) => e.map_row_id === rowId).length;
     const typeInfo = ELEMENT_TYPES.find((t) => t.id === elementType) || ELEMENT_TYPES[0];
 
-    const { data: newEl, error: elErr } = await supabase
+    const newElements = Array.from({ length: count }, (_, i) => ({
+      beach_map_id: activeMapId,
+      map_row_id: rowId,
+      element_type: elementType,
+      label: `${letter}${existing + i + 1}`,
+      position_x: existing + i,
+      position_y: rowNumber - 1,
+      max_sunbeds: typeInfo.defaultCapacity,
+      is_premium: rowNumber === 1,
+      is_active: true,
+      is_bookable: true,
+    }));
+
+    const { data: inserted, error } = await supabase
       .from("map_elements")
-      .insert({
-        beach_map_id: activeMapId,
-        map_row_id: rowId,
-        element_type: elementType,
-        label: `${letter}${nextNum}`,
-        position_x: nextNum - 1,
-        position_y: rowNumber - 1,
-        max_sunbeds: typeInfo.defaultCapacity,
-        is_premium: rowNumber === 1,
-        is_active: true,
-        is_bookable: true,
-      })
-      .select()
-      .single();
+      .insert(newElements)
+      .select();
 
-    if (elErr) {
-      console.error("Errore aggiunta elemento:", elErr, "tipo:", elementType);
-      // Fallback: insert without element_type and then update
-      const { data: fallbackEl } = await supabase
-        .from("map_elements")
-        .insert({
-          beach_map_id: activeMapId,
-          map_row_id: rowId,
-          label: `${letter}${nextNum}`,
-          position_x: nextNum - 1,
-          position_y: rowNumber - 1,
-          max_sunbeds: typeInfo.defaultCapacity,
-          is_premium: rowNumber === 1,
-          is_active: true,
-          is_bookable: true,
-        })
-        .select()
-        .single();
-
-      if (fallbackEl && elementType !== "umbrella") {
-        await supabase
-          .from("map_elements")
-          .update({ element_type: elementType as "umbrella" | "cabana" | "gazebo" | "sunbed" })
-          .eq("id", fallbackEl.id);
-        fallbackEl.element_type = elementType;
-      }
-      if (fallbackEl) {
-        setElements((prev) => [...prev, fallbackEl]);
-      }
-      markChanged();
+    if (error) {
+      console.error("Errore aggiunta elementi:", error);
       return;
     }
-
-    if (newEl) {
-      setElements((prev) => [...prev, newEl]);
+    if (inserted) {
+      setElements((prev) => [...prev, ...inserted]);
       markChanged();
     }
   }
@@ -896,11 +867,7 @@ export default function MappaPage() {
                                     variant="ghost"
                                     size="sm"
                                     className="h-7 text-xs"
-                                    onClick={async () => {
-                                      for (let i = 0; i < addElementCount; i++) {
-                                        await addElementToRow(row.id, row.row_number, addElementType);
-                                      }
-                                    }}
+                                    onClick={() => addElementToRow(row.id, row.row_number, addElementType, addElementCount)}
                                   >
                                     <Plus className="h-3 w-3" />
                                     Aggiungi
@@ -928,14 +895,14 @@ export default function MappaPage() {
                               <button
                                 key={el.id}
                                 onClick={() => setSelectedElement(el.id)}
-                                className={`flex ${isBigElement ? "h-16 w-20" : "h-14 w-14"} flex-col items-center justify-center rounded-lg border-2 text-xs font-medium transition-all ${
+                                className={`flex ${isBigElement ? "h-16 w-20" : "h-14 w-14"} flex-col items-center justify-center rounded-xl border-2 text-xs font-semibold transition-all duration-150 ${
                                   STATUS_COLORS[status]
-                                } ${selectedElement === el.id ? "ring-2 ring-foreground/20 scale-110" : ""}`}
+                                } ${selectedElement === el.id ? "ring-2 ring-offset-1 ring-foreground/30 scale-110 z-10" : "hover:scale-105"}`}
                               >
-                                <ElIcon className="h-4 w-4" />
-                                <span className="mt-0.5">{el.label}</span>
+                                <ElIcon className={`${isBigElement ? "h-5 w-5" : "h-4 w-4"}`} />
+                                <span className="mt-0.5 leading-none">{el.label}</span>
                                 {price !== null && (
-                                  <span className="text-[10px] opacity-70">
+                                  <span className="mt-0.5 text-[9px] font-medium opacity-60">
                                     €{(price / 100).toFixed(0)}
                                   </span>
                                 )}
