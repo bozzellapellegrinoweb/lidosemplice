@@ -115,6 +115,8 @@ export default function BookingPage() {
   const searchParams = useSearchParams();
   const [startDate, setStartDate] = useState(searchParams.get("start") ?? "");
   const [endDate, setEndDate] = useState(searchParams.get("end") ?? "");
+  const [durationType, setDurationType] = useState<"full_day" | "half_day">("full_day");
+  const [halfPeriod, setHalfPeriod] = useState<"morning" | "afternoon">("morning");
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [serviceQtys, setServiceQtys] = useState<Record<string, number>>({});
   const [guestName, setGuestName] = useState("");
@@ -276,53 +278,68 @@ export default function BookingPage() {
   }
 
   const days =
-    startDate && endDate
-      ? Math.max(
-          1,
-          Math.ceil(
-            (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000
-          ) + 1
-        )
-      : 1;
+    durationType === "half_day"
+      ? 1
+      : startDate && endDate
+        ? Math.max(
+            1,
+            Math.ceil(
+              (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000
+            ) + 1
+          )
+        : 1;
 
   // Price lookup: use pricing_rules from DB, fallback to hardcoded
   const FALLBACK_PRICES: Record<number, number> = { 1: 45, 2: 35, 3: 25, 4: 20 };
   function getPrice(rowNumber: number, elementType: string = "umbrella"): number {
-    if (pricingRules.length === 0) return FALLBACK_PRICES[rowNumber] || 15;
+    if (pricingRules.length === 0) {
+      const base = FALLBACK_PRICES[rowNumber] || 15;
+      return durationType === "half_day" ? Math.round(base * 0.6) : base;
+    }
 
-    // Find current season based on start date
     const bookingDate = startDate || new Date().toISOString().split("T")[0];
     const currentSeason = seasons.find(
       (s) => bookingDate >= s.start_date && bookingDate <= s.end_date
     );
 
-    if (currentSeason) {
-      // Look for full_day price for this row, season, and element type
-      const rule = pricingRules.find(
-        (r) => r.row_number === rowNumber && r.season_id === currentSeason.id && r.duration_type === "full_day" && r.element_type === elementType
-      );
-      if (rule) return rule.price_cents / 100;
+    // Try to find a rule matching current durationType first, then fallback to full_day
+    const dTypes = durationType === "half_day" ? ["half_day", "full_day"] : ["full_day"];
 
-      // Fallback: try without element_type match (umbrella default)
-      const fallbackRule = pricingRules.find(
-        (r) => r.row_number === rowNumber && r.season_id === currentSeason.id && r.duration_type === "full_day"
+    for (const dType of dTypes) {
+      if (currentSeason) {
+        const rule = pricingRules.find(
+          (r) => r.row_number === rowNumber && r.season_id === currentSeason.id && r.duration_type === dType && r.element_type === elementType
+        );
+        if (rule) {
+          const price = rule.price_cents / 100;
+          return durationType === "half_day" && dType === "full_day" ? Math.round(price * 0.6) : price;
+        }
+        const fallbackRule = pricingRules.find(
+          (r) => r.row_number === rowNumber && r.season_id === currentSeason.id && r.duration_type === dType
+        );
+        if (fallbackRule) {
+          const price = fallbackRule.price_cents / 100;
+          return durationType === "half_day" && dType === "full_day" ? Math.round(price * 0.6) : price;
+        }
+      }
+      const anyRule = pricingRules.find(
+        (r) => r.row_number === rowNumber && r.duration_type === dType && r.element_type === elementType
       );
-      if (fallbackRule) return fallbackRule.price_cents / 100;
+      if (anyRule) {
+        const price = anyRule.price_cents / 100;
+        return durationType === "half_day" && dType === "full_day" ? Math.round(price * 0.6) : price;
+      }
+      const anyRowRule = pricingRules.find(
+        (r) => r.row_number === rowNumber && r.duration_type === dType
+      );
+      if (anyRowRule) {
+        const price = anyRowRule.price_cents / 100;
+        return durationType === "half_day" && dType === "full_day" ? Math.round(price * 0.6) : price;
+      }
     }
 
-    // Fallback: any full_day rule for this row + element type
-    const anyRule = pricingRules.find(
-      (r) => r.row_number === rowNumber && r.duration_type === "full_day" && r.element_type === elementType
-    );
-    if (anyRule) return anyRule.price_cents / 100;
-
-    // Fallback: any full_day rule for this row
-    const anyRowRule = pricingRules.find(
-      (r) => r.row_number === rowNumber && r.duration_type === "full_day"
-    );
-    if (anyRowRule) return anyRowRule.price_cents / 100;
-
-    return FALLBACK_PRICES[rowNumber] || 15;
+    const base = FALLBACK_PRICES[rowNumber] || 15;
+    return durationType === "half_day" ? Math.round(base * 0.6) : base;
   }
 
   const umbrellaTotal = selectedItems.reduce(
@@ -365,7 +382,9 @@ export default function BookingPage() {
         guest_email: guestEmail,
         guest_phone: guestPhone,
         start_date: startDate,
-        end_date: endDate,
+        end_date: durationType === "half_day" ? startDate : endDate,
+        duration_type: durationType,
+        half_period: durationType === "half_day" ? halfPeriod : undefined,
         payment_method: paymentMethod,
         total_cents: Math.round(total * 100),
         items,
@@ -544,47 +563,92 @@ export default function BookingPage() {
                     <p className="text-sm text-muted-foreground mt-1">Scegli le date del tuo soggiorno</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    {/* Durata */}
+                    <div>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Durata</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setDurationType("full_day")}
+                          className={`rounded-xl border-2 p-3 text-sm font-medium transition-all ${durationType === "full_day" ? "border-brand-azure bg-brand-azure/10 text-brand-azure" : "border-border hover:border-brand-azure/40"}`}
+                        >
+                          ☀️ Giornata intera
+                        </button>
+                        <button
+                          onClick={() => { setDurationType("half_day"); if (startDate) setEndDate(startDate); }}
+                          className={`rounded-xl border-2 p-3 text-sm font-medium transition-all ${durationType === "half_day" ? "border-brand-azure bg-brand-azure/10 text-brand-azure" : "border-border hover:border-brand-azure/40"}`}
+                        >
+                          🌅 Mezza giornata
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Date */}
+                    <div className={`grid gap-4 ${durationType === "full_day" ? "grid-cols-2" : "grid-cols-1"}`}>
                       <div>
                         <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Arrivo
+                          {durationType === "half_day" ? "Data" : "Arrivo"}
                         </label>
                         <div className="relative">
                           <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                           <Input
                             type="date"
                             value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
+                            onChange={(e) => {
+                              setStartDate(e.target.value);
+                              if (durationType === "half_day") setEndDate(e.target.value);
+                            }}
                             min={new Date().toISOString().split("T")[0]}
                             className="h-12 pl-9 text-base"
                           />
                         </div>
                       </div>
-                      <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Partenza
-                        </label>
-                        <div className="relative">
-                          <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          <Input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            min={startDate || new Date().toISOString().split("T")[0]}
-                            className="h-12 pl-9 text-base"
-                          />
+                      {durationType === "full_day" && (
+                        <div>
+                          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Partenza
+                          </label>
+                          <div className="relative">
+                            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              type="date"
+                              value={endDate}
+                              onChange={(e) => setEndDate(e.target.value)}
+                              min={startDate || new Date().toISOString().split("T")[0]}
+                              className="h-12 pl-9 text-base"
+                            />
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
 
-                    {startDate && endDate && (
+                    {/* Periodo mezza giornata */}
+                    {durationType === "half_day" && (
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Periodo</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setHalfPeriod("morning")}
+                            className={`rounded-xl border-2 p-3 text-sm font-medium transition-all ${halfPeriod === "morning" ? "border-brand-azure bg-brand-azure/10 text-brand-azure" : "border-border hover:border-brand-azure/40"}`}
+                          >
+                            🌅 Mattina
+                          </button>
+                          <button
+                            onClick={() => setHalfPeriod("afternoon")}
+                            className={`rounded-xl border-2 p-3 text-sm font-medium transition-all ${halfPeriod === "afternoon" ? "border-brand-azure bg-brand-azure/10 text-brand-azure" : "border-border hover:border-brand-azure/40"}`}
+                          >
+                            🌇 Pomeriggio
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {startDate && (durationType === "half_day" || endDate) && (
                       <div className="rounded-xl border border-brand-azure/20 bg-brand-azure/10 px-4 py-3 text-center">
                         <p className="text-sm font-medium text-brand-azure">
-                          {days === 1 ? "1 giorno" : `${days} giorni`}
-                          {" · "}
-                          {new Date(startDate + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}
-                          {" → "}
-                          {new Date(endDate + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}
+                          {durationType === "half_day"
+                            ? `Mezza giornata · ${halfPeriod === "morning" ? "Mattina" : "Pomeriggio"} · ${new Date(startDate + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}`
+                            : `${days === 1 ? "1 giorno" : `${days} giorni`} · ${new Date(startDate + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })} → ${new Date(endDate + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}`
+                          }
                         </p>
                       </div>
                     )}
@@ -593,7 +657,7 @@ export default function BookingPage() {
                       variant="brand"
                       size="xl"
                       className="mt-2 w-full"
-                      disabled={!startDate || !endDate}
+                      disabled={!startDate || (durationType === "full_day" && !endDate)}
                       onClick={() => setStep(2)}
                     >
                       Scegli il tuo posto
