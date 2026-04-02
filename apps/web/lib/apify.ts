@@ -1,6 +1,6 @@
 import { COMUNI_COSTIERI } from "@/lib/comuni-costieri";
 
-const BATCH_SIZE = 50; // ~1000 leads/giorno (50 comuni × max 20 risultati)
+const BATCH_SIZE = 10; // ~100 leads/run (10 comuni × max 10 risultati)
 
 export async function startApifyRun(
   apifyToken: string
@@ -25,7 +25,7 @@ export async function startApifyRun(
         },
         body: JSON.stringify({
           searchStringsArray: searchQueries,
-          maxCrawledPlacesPerSearch: 20,
+          maxCrawledPlacesPerSearch: 10,
           language: "it",
           countryCode: "it",
           includeHistogram: false,
