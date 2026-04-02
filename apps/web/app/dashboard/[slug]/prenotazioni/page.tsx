@@ -12,6 +12,7 @@ import {
   QrCode,
   X,
   Calendar,
+  Clock,
   Umbrella,
   Phone,
   Mail,
@@ -294,6 +295,13 @@ const STATUS_MAP: Record<string, { label: string; variant: "available" | "partia
   no_show: { label: "No show", variant: "occupied" },
 };
 
+function durationLabel(duration: string | null | undefined, startDate: string, endDate: string): string {
+  if (duration === "half_day_morning") return "Mezza giornata · Mattina";
+  if (duration === "half_day_afternoon") return "Mezza giornata · Pomeriggio";
+  const days = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
+  return days === 1 ? "Giornata intera" : `${days} giorni`;
+}
+
 interface Booking {
   id: string;
   booking_code: string;
@@ -302,6 +310,7 @@ interface Booking {
   guest_phone: string;
   start_date: string;
   end_date: string;
+  duration: string;
   status: string;
   total_cents: number;
   created_at: string;
@@ -700,6 +709,7 @@ export default function PrenotazioniPage() {
                       <p className="text-sm text-muted-foreground">
                         {booking.booking_code} &middot;{" "}
                         {booking.start_date === booking.end_date ? booking.start_date : `${booking.start_date} → ${booking.end_date}`}
+                        {" · "}{durationLabel(booking.duration, booking.start_date, booking.end_date)}
                       </p>
                     </div>
                   </div>
@@ -745,6 +755,10 @@ export default function PrenotazioniPage() {
                 <div className="flex items-center gap-2 text-sm">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
                   <span>{detail.start_date === detail.end_date ? detail.start_date : `${detail.start_date} → ${detail.end_date}`}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span>{durationLabel(detail.duration, detail.start_date, detail.end_date)}</span>
                 </div>
                 {detail.guest_phone && (
                   <div className="flex items-center gap-2 text-sm">
