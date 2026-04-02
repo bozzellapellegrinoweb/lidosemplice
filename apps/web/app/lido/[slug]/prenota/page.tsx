@@ -501,22 +501,22 @@ export default function BookingPage() {
           </div>
 
           <div className="hidden items-center gap-2 sm:flex">
-            {["Mappa", "Servizi", "Pagamento"].map((s, i) => (
+            {["Date", "Mappa", "Servizi", "Pagamento"].map((s, i) => (
               <div key={s} className="flex items-center gap-2">
                 <button
-                  onClick={() => i + 1 <= step && setStep(i + 1)}
+                  onClick={() => i + 1 < step && setStep(i + 1)}
                   className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors ${
                     i + 1 === step
                       ? "bg-brand-azure text-white"
                       : i + 1 < step
-                        ? "bg-available/15 text-available"
+                        ? "bg-available/15 text-available cursor-pointer"
                         : "bg-muted text-muted-foreground"
                   }`}
                 >
                   {i + 1 < step ? <Check className="h-3 w-3" /> : <span>{i + 1}</span>}
                   {s}
                 </button>
-                {i < 2 && <div className="h-px w-4 bg-border" />}
+                {i < 3 && <div className="h-px w-4 bg-border" />}
               </div>
             ))}
           </div>
@@ -531,45 +531,80 @@ export default function BookingPage() {
       </header>
 
       <div className="mx-auto max-w-6xl px-4 py-6">
-        {/* Date picker */}
-        <div className="mb-6 flex flex-wrap items-end gap-4">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">
-              <Calendar className="mr-1 inline h-4 w-4" />
-              Data arrivo
-            </label>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-44"
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Data partenza</label>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              min={startDate}
-              className="w-44"
-            />
-          </div>
-          {days > 1 && (
-            <Badge variant="secondary" className="mb-1">
-              {days} giorni
-            </Badge>
-          )}
-          {(!startDate || !endDate) && (
-            <p className="mb-1 text-sm text-destructive">
-              Seleziona le date per procedere con la prenotazione.
-            </p>
-          )}
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className={`grid gap-6 ${step === 1 ? "" : "lg:grid-cols-[1fr_320px]"}`}>
           <div>
             {step === 1 && (
+              <div className="flex flex-col items-center justify-center py-8">
+                <Card className="w-full max-w-lg mx-auto shadow-lg">
+                  <CardHeader className="text-center pb-2">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-cyan via-brand-azure to-brand-blue">
+                      <Calendar className="h-8 w-8 text-white" />
+                    </div>
+                    <CardTitle className="text-2xl">Quando vuoi venire?</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">Scegli le date del tuo soggiorno</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Arrivo
+                        </label>
+                        <div className="relative">
+                          <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            min={new Date().toISOString().split("T")[0]}
+                            className="h-12 pl-9 text-base"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Partenza
+                        </label>
+                        <div className="relative">
+                          <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            min={startDate || new Date().toISOString().split("T")[0]}
+                            className="h-12 pl-9 text-base"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {startDate && endDate && (
+                      <div className="rounded-xl border border-brand-azure/20 bg-brand-azure/10 px-4 py-3 text-center">
+                        <p className="text-sm font-medium text-brand-azure">
+                          {days === 1 ? "1 giorno" : `${days} giorni`}
+                          {" · "}
+                          {new Date(startDate + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}
+                          {" → "}
+                          {new Date(endDate + "T12:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}
+                        </p>
+                      </div>
+                    )}
+
+                    <Button
+                      variant="brand"
+                      size="xl"
+                      className="mt-2 w-full"
+                      disabled={!startDate || !endDate}
+                      onClick={() => setStep(2)}
+                    >
+                      Scegli il tuo posto
+                      <ArrowRight className="h-5 w-5" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {step === 2 && (
               <>
                 {rows.length === 0 ? (
                   <Card>
@@ -628,9 +663,9 @@ export default function BookingPage() {
                                         }`}
                                         style={isSelected && !isOccupied ? {
                                           borderColor: primaryColor,
-                                          backgroundColor: primaryColor + "30",
-                                          color: primaryColor,
-                                          boxShadow: `0 0 0 2px ${primaryColor}50`,
+                                          backgroundColor: primaryColor,
+                                          color: "white",
+                                          boxShadow: `0 0 0 3px ${primaryColor}40`,
                                         } : undefined}
                                       >
                                         <ElIcon className="h-4 w-4" />
@@ -705,7 +740,7 @@ export default function BookingPage() {
               </>
             )}
 
-            {step === 2 && (
+            {step === 3 && (
               <Card>
                 <CardHeader>
                   <CardTitle>Servizi aggiuntivi</CardTitle>
@@ -756,7 +791,7 @@ export default function BookingPage() {
               </Card>
             )}
 
-            {step === 3 && (
+            {step === 4 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -896,7 +931,7 @@ export default function BookingPage() {
           </div>
 
           {/* Sidebar carrello */}
-          <div className="lg:sticky lg:top-20">
+          {step > 1 && <div className="lg:sticky lg:top-20">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
@@ -947,11 +982,11 @@ export default function BookingPage() {
                 )}
 
                 <div className="space-y-2 pt-2">
-                  {step < 3 && (
+                  {step >= 2 && step < 4 && (
                     <Button
                       variant="brand"
                       className="w-full"
-                      disabled={selectedItems.length === 0 || !startDate || !endDate}
+                      disabled={step === 2 && selectedItems.length === 0}
                       onClick={() => setStep(step + 1)}
                     >
                       Continua
@@ -967,7 +1002,7 @@ export default function BookingPage() {
                 </div>
               </CardContent>
             </Card>
-          </div>
+          </div>}
         </div>
       </div>
     </div>
