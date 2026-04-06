@@ -404,6 +404,38 @@ export default function BookingPage() {
     const bookingCode = bookingData.booking_code;
     const qrToken = bookingData.qr_token;
 
+    // PayPal — redirect al checkout PayPal del lido
+    if (paymentMethod === "paypal") {
+      const paypalEmail = paymentMethods.paypal?.email as string | undefined;
+      if (!paypalEmail) {
+        alert("Email PayPal del lido non configurata");
+        setSubmitting(false);
+        return;
+      }
+      const returnUrl = `${window.location.origin}/api/bookings/paypal-return?bookingId=${bookingId}&slug=${slug}&booking_code=${bookingCode}`;
+      const cancelUrl = `${window.location.origin}/lido/${slug}/prenota`;
+      const paypalUrl = `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(paypalEmail)}&amount=${total.toFixed(2)}&currency_code=EUR&item_name=${encodeURIComponent("Prenotazione " + bookingCode)}&no_note=1&no_shipping=1&return=${encodeURIComponent(returnUrl)}&cancel_return=${encodeURIComponent(cancelUrl)}`;
+      window.location.href = paypalUrl;
+      return;
+    }
+
+    // Stripe — checkout sul conto Connect del lido
+    if (paymentMethod === "stripe") {
+      const stripeRes = await fetch("/api/stripe/booking-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId, slug }),
+      });
+      const stripeData = await stripeRes.json();
+      if (stripeData.url) {
+        window.location.href = stripeData.url;
+        return;
+      }
+      alert(stripeData.error ?? "Errore Stripe");
+      setSubmitting(false);
+      return;
+    }
+
     // Handle redirect-based payments
     if (paymentMethod === "satispay") {
       const satRes = await fetch("/api/satispay/create-payment", {
