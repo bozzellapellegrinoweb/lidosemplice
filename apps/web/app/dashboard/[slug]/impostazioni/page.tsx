@@ -15,7 +15,7 @@ import { AMENITY_GROUPS, DEFAULT_AMENITIES, type AmenitiesData } from "@/lib/ame
 
 type PaymentMethods = {
   cash: { enabled: boolean };
-  stripe: { enabled: boolean; secret_key: string; publishable_key: string };
+  stripe: { enabled: boolean };
   paypal: { enabled: boolean; email: string };
   satispay: { enabled: boolean; key_id: string; private_key: string };
   revolut: { enabled: boolean; api_key: string };
@@ -24,7 +24,7 @@ type PaymentMethods = {
 
 const DEFAULT_PAYMENT_METHODS: PaymentMethods = {
   cash: { enabled: true },
-  stripe: { enabled: false, secret_key: "", publishable_key: "" },
+  stripe: { enabled: false },
   paypal: { enabled: false, email: "" },
   satispay: { enabled: false, key_id: "", private_key: "" },
   revolut: { enabled: false, api_key: "" },
@@ -57,6 +57,8 @@ interface EstablishmentSettings {
   gallery_photo_urls: string[];
   amenities: AmenitiesData;
   payment_methods: PaymentMethods;
+  stripe_account_id: string;
+  stripe_onboarding_complete: boolean;
 }
 
 // ── Google Places Autocomplete ────────────────────────────────────────────────
@@ -314,7 +316,7 @@ export default function ImpostazioniPage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("establishments")
-        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude, logo_url, cover_image_url, gallery_photo_urls, amenities, payment_methods")
+        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude, logo_url, cover_image_url, gallery_photo_urls, amenities, payment_methods, stripe_account_id, stripe_onboarding_complete")
         .eq("slug", slug)
         .single();
 
@@ -345,6 +347,8 @@ export default function ImpostazioniPage() {
           gallery_photo_urls: data.gallery_photo_urls || [],
           amenities: { ...DEFAULT_AMENITIES, ...(data.amenities || {}) },
           payment_methods: { ...DEFAULT_PAYMENT_METHODS, ...(data.payment_methods || {}) },
+          stripe_account_id: data.stripe_account_id || "",
+          stripe_onboarding_complete: data.stripe_onboarding_complete || false,
         });
       }
       setLoading(false);
@@ -910,41 +914,27 @@ export default function ImpostazioniPage() {
                   <p className="text-sm text-muted-foreground">Visa, Mastercard, Google Pay, Apple Pay via Stripe.</p>
                 </div>
               </div>
-              {settings.payment_methods.stripe.secret_key && (
+              {settings.stripe_onboarding_complete ? (
                 <label className="relative inline-flex cursor-pointer items-center">
                   <input type="checkbox" className="peer sr-only"
                     checked={settings.payment_methods.stripe.enabled}
                     onChange={(e) => updatePaymentMethod("stripe", "enabled", e.target.checked)} />
                   <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
                 </label>
+              ) : (
+                <a
+                  href={`/api/stripe/connect/start?id=${settings.id}&slug=${settings.slug}`}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#635bff] px-4 py-2 text-sm font-semibold text-white hover:bg-[#5147e5] transition"
+                >
+                  <Link2 className="h-4 w-4" />
+                  Collega Stripe
+                </a>
               )}
             </div>
-            <div className="space-y-2">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground">Chiave segreta (sk_live_...)</label>
-                <Input
-                  type="password"
-                  placeholder="sk_live_..."
-                  value={settings.payment_methods.stripe.secret_key}
-                  onChange={(e) => updatePaymentMethod("stripe", "secret_key", e.target.value)}
-                  className="mt-1 font-mono text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground">Chiave pubblica (pk_live_...)</label>
-                <Input
-                  type="text"
-                  placeholder="pk_live_..."
-                  value={settings.payment_methods.stripe.publishable_key}
-                  onChange={(e) => updatePaymentMethod("stripe", "publishable_key", e.target.value)}
-                  className="mt-1 font-mono text-xs"
-                />
-              </div>
-            </div>
-            {settings.payment_methods.stripe.secret_key && (
+            {settings.stripe_onboarding_complete && (
               <div className="flex items-center gap-2 text-xs text-green-600">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                Stripe configurato — i pagamenti arrivano direttamente a te.
+                Account Stripe collegato — i pagamenti arrivano direttamente a te.
               </div>
             )}
           </div>
