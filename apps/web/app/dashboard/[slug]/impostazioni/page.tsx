@@ -285,6 +285,8 @@ export default function ImpostazioniPage() {
 
   const searchParams = useSearchParams();
   const stripeOk = searchParams.get("stripe_ok") === "1";
+  const stripeError = searchParams.get("stripe_error") === "1";
+  const stripeErrorMsg = searchParams.get("msg") ?? "";
 
   const [settings, setSettings] = useState<EstablishmentSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -869,6 +871,13 @@ export default function ImpostazioniPage() {
             <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               Stripe collegato con successo!
+            </div>
+          )}
+          {stripeError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              <p className="font-medium">Errore collegamento Stripe</p>
+              {stripeErrorMsg && <p className="mt-1 text-xs opacity-80">{stripeErrorMsg}</p>}
+              <p className="mt-1 text-xs opacity-70">Assicurati di aver abilitato Stripe Connect nel tuo account Stripe (dashboard.stripe.com → Connect).</p>
             </div>
           )}
 

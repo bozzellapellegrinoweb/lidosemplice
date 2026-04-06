@@ -9,17 +9,32 @@ export async function GET(request: Request) {
     return Response.json({ error: "Parametri mancanti" }, { status: 400 });
   }
 
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lido-facile.it";
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return Response.json({ error: "STRIPE_SECRET_KEY non configurata" }, { status: 503 });
+  }
 
-  const accountLink = await stripe.accountLinks.create({
-    account: await getOrCreateStripeAccount(stripe, establishmentId),
-    refresh_url: `${appUrl}/dashboard/${slug}/impostazioni?stripe_error=1`,
-    return_url: `${appUrl}/api/stripe/connect/callback?id=${establishmentId}&slug=${slug}`,
-    type: "account_onboarding",
-  });
+  try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lido-facile.it";
 
-  return Response.redirect(accountLink.url);
+    const accountId = await getOrCreateStripeAccount(stripe, establishmentId);
+
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${appUrl}/dashboard/${slug}/impostazioni?stripe_error=1`,
+      return_url: `${appUrl}/api/stripe/connect/callback?id=${establishmentId}&slug=${slug}`,
+      type: "account_onboarding",
+    });
+
+    return Response.redirect(accountLink.url);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Errore sconosciuto";
+    console.error("Stripe Connect error:", message);
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lido-facile.it";
+    return Response.redirect(
+      `${appUrl}/dashboard/${slug}/impostazioni?stripe_error=1&msg=${encodeURIComponent(message)}`
+    );
+  }
 }
 
 async function getOrCreateStripeAccount(stripe: Stripe, establishmentId: string): Promise<string> {
@@ -38,7 +53,6 @@ async function getOrCreateStripeAccount(stripe: Stripe, establishmentId: string)
 
   if (data?.stripe_account_id) return data.stripe_account_id;
 
-  // Crea nuovo account Connect Express
   const account = await stripe.accounts.create({ type: "express", country: "IT" });
 
   await db.from("establishments").update({
