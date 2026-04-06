@@ -193,6 +193,7 @@ export function GlobalNotifications({ establishmentId, slug }: {
       .from("bookings")
       .select("guest_name, start_date, end_date, total_cents, booking_code, created_at")
       .eq("establishment_id", id)
+      .neq("status", "pending_payment")
       .order("created_at", { ascending: false })
       .limit(1);
 
@@ -234,6 +235,7 @@ export function GlobalNotifications({ establishmentId, slug }: {
           .from("bookings")
           .select("created_at")
           .eq("establishment_id", establishmentId)
+          .neq("status", "pending_payment")
           .order("created_at", { ascending: false })
           .limit(1),
       ]);

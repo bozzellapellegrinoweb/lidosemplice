@@ -409,9 +409,22 @@ export default function PrenotazioniPage() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "bookings", filter: `establishment_id=eq.${establishmentId}` },
         (payload) => {
           loadBookings();
-          const row = payload.new as { guest_name: string; start_date: string; end_date: string; total_cents: number; booking_code: string; created_at: string };
+          const row = payload.new as { guest_name: string; start_date: string; end_date: string; total_cents: number; booking_code: string; created_at: string; status: string };
+          // Non notificare prenotazioni in attesa di pagamento online
+          if (row.status === "pending_payment") return;
           lastBookingTimestampRef.current = row.created_at;
           triggerBookingAlert({ guest_name: row.guest_name || "Cliente", start_date: row.start_date, end_date: row.end_date, total_cents: row.total_cents, booking_code: row.booking_code });
+        }
+      )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "bookings", filter: `establishment_id=eq.${establishmentId}` },
+        (payload) => {
+          loadBookings();
+          const oldRow = payload.old as { status: string };
+          const newRow = payload.new as { guest_name: string; start_date: string; end_date: string; total_cents: number; booking_code: string; created_at: string; status: string };
+          // Notifica solo quando un pagamento online viene completato
+          if (oldRow.status === "pending_payment" && (newRow.status === "confirmed" || newRow.status === "pending")) {
+            triggerBookingAlert({ guest_name: newRow.guest_name || "Cliente", start_date: newRow.start_date, end_date: newRow.end_date, total_cents: newRow.total_cents, booking_code: newRow.booking_code });
+          }
         }
       )
       .subscribe();
@@ -427,6 +440,7 @@ export default function PrenotazioniPage() {
       .from("bookings")
       .select("guest_name, start_date, end_date, total_cents, booking_code, created_at")
       .eq("establishment_id", id)
+      .neq("status", "pending_payment")
       .order("created_at", { ascending: false })
       .limit(1);
 
