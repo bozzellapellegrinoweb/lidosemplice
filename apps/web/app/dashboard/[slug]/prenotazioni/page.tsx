@@ -488,9 +488,11 @@ export default function PrenotazioniPage() {
 
     if (data) {
       setBookings(data);
-      // Inizializza timestamp: non triggerare alert per prenotazioni già esistenti
-      if (data.length > 0 && lastBookingTimestampRef.current === null) {
-        lastBookingTimestampRef.current = data[0].created_at;
+      // Inizializza timestamp solo dalla prima prenotazione CONFERMATA
+      // (esclude pending_payment altrimenti il confronto T > T non scatta mai)
+      if (lastBookingTimestampRef.current === null) {
+        const firstConfirmed = data.find((b) => b.status !== "pending_payment");
+        lastBookingTimestampRef.current = firstConfirmed?.created_at ?? "1970-01-01T00:00:00.000Z";
       }
     }
     setLoading(false);
