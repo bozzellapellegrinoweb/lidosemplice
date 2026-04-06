@@ -34,7 +34,8 @@ export async function GET(req: NextRequest) {
   for (const [method, config] of Object.entries(pm)) {
     // Strip sensitive credentials — never expose to client
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { private_key, api_key, activation_token, ...publicConfig } = config as Record<string, unknown>;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { private_key, api_key, activation_token, secret_key, ...publicConfig } = config as Record<string, unknown>;
     publicPm[method] = publicConfig;
   }
 
