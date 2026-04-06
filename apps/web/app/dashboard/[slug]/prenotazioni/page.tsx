@@ -446,11 +446,17 @@ export default function PrenotazioniPage() {
 
     if (data && data.length > 0) {
       const newest = data[0];
-      if (lastBookingTimestampRef.current && new Date(newest.created_at) > new Date(lastBookingTimestampRef.current)) {
+      const ref = lastBookingTimestampRef.current;
+      const isNewer = ref === null
+        ? false
+        : new Date(newest.created_at) > new Date(ref);
+      if (isNewer) {
         loadBookings();
         triggerBookingAlert({ guest_name: newest.guest_name || "Cliente", start_date: newest.start_date, end_date: newest.end_date, total_cents: newest.total_cents, booking_code: newest.booking_code });
       }
       lastBookingTimestampRef.current = newest.created_at;
+    } else if (lastBookingTimestampRef.current === null) {
+      lastBookingTimestampRef.current = "1970-01-01T00:00:00.000Z";
     }
   }
 

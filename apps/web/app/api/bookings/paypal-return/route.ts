@@ -18,31 +18,47 @@ export async function GET(request: Request) {
   const slug = searchParams.get("slug");
   const bookingCode = searchParams.get("booking_code");
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lido-facile.it";
+  let qrToken = "";
+
   if (bookingId) {
     const db = adminSupabase();
+
     await db
       .from("bookings")
       .update({ status: "confirmed" })
       .eq("id", bookingId)
       .eq("status", "pending_payment");
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lido-facile.it";
+    // Fetch qr_code_token per mostrarlo nella pagina di successo
+    const { data: booking } = await db
+      .from("bookings")
+      .select("qr_code_token")
+      .eq("id", bookingId)
+      .single();
 
-    fetch(`${appUrl}/api/email/booking-confirmation`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId }),
-    }).catch(console.error);
+    qrToken = booking?.qr_code_token ?? "";
 
-    fetch(`${appUrl}/api/email/nuova-prenotazione`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId }),
-    }).catch(console.error);
+    // Await entrambe le email — in serverless il fire-and-forget non funziona
+    await Promise.allSettled([
+      fetch(`${appUrl}/api/email/booking-confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId }),
+      }),
+      fetch(`${appUrl}/api/email/nuova-prenotazione`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId }),
+      }),
+    ]);
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lido-facile.it";
-  return Response.redirect(
-    `${appUrl}/lido/${slug}/prenota/success?booking_code=${bookingCode}&method=paypal`
-  );
+  const params = new URLSearchParams({
+    booking_code: bookingCode ?? "",
+    method: "paypal",
+    ...(qrToken ? { qr_token: qrToken } : {}),
+  });
+
+  return Response.redirect(`${appUrl}/lido/${slug}/prenota/success?${params.toString()}`);
 }

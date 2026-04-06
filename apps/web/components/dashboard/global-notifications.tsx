@@ -199,10 +199,10 @@ export function GlobalNotifications({ establishmentId, slug }: {
 
     if (data && data.length > 0) {
       const newest = data[0];
-      if (
-        lastBookingTimestampRef.current &&
-        new Date(newest.created_at) > new Date(lastBookingTimestampRef.current)
-      ) {
+      const isNewer = lastBookingTimestampRef.current === null
+        ? false // primo caricamento: non triggerare alert per prenotazioni già esistenti
+        : new Date(newest.created_at) > new Date(lastBookingTimestampRef.current);
+      if (isNewer) {
         addToast({
           type: "booking",
           guest_name: newest.guest_name || "Cliente",
@@ -214,6 +214,10 @@ export function GlobalNotifications({ establishmentId, slug }: {
         });
       }
       lastBookingTimestampRef.current = newest.created_at;
+    } else if (lastBookingTimestampRef.current === null) {
+      // Nessuna prenotazione confermata esistente: usa epoch così la prossima
+      // prenotazione confermata (es. da PayPal) viene rilevata correttamente
+      lastBookingTimestampRef.current = "1970-01-01T00:00:00.000Z";
     }
   }, [slug, addToast]);
 

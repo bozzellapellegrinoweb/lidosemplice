@@ -21,6 +21,7 @@ function SuccessContent() {
   const slug = params.slug as string;
   const bookingCode = searchParams.get("booking_code") ?? "";
   const method = searchParams.get("method") ?? "";
+  const qrToken = searchParams.get("qr_token") ?? "";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -36,9 +37,25 @@ function SuccessContent() {
         </p>
 
         {bookingCode && (
-          <div className="mb-6 rounded-xl border bg-muted/50 p-5">
+          <div className="mb-4 rounded-xl border bg-muted/50 p-5">
             <p className="text-sm text-muted-foreground">Codice prenotazione</p>
             <p className="mt-1 font-mono text-xl font-bold text-brand-azure">{bookingCode}</p>
+          </div>
+        )}
+
+        {qrToken && (
+          <div className="mb-6 text-center">
+            <p className="mb-2 text-sm text-muted-foreground">Mostra questo QR al check-in</p>
+            <div className="mx-auto inline-block rounded-2xl border-4 border-brand-azure bg-white p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrToken}`}
+                alt="QR check-in"
+                width={200}
+                height={200}
+                className="block"
+              />
+            </div>
           </div>
         )}
 
