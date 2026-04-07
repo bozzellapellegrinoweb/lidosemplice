@@ -112,17 +112,17 @@ export default function MarketingLayout({
               <h3 className="mb-4 text-sm font-semibold text-white">Legale</h3>
               <ul className="space-y-2 text-sm text-white/50">
                 <li>
-                  <Link href="#" className="hover:text-white">
+                  <Link href="/privacy-policy" className="hover:text-white">
                     Privacy Policy
                   </Link>
                 </li>
                 <li>
-                  <Link href="#" className="hover:text-white">
+                  <Link href="/termini-di-servizio" className="hover:text-white">
                     Termini di Servizio
                   </Link>
                 </li>
                 <li>
-                  <Link href="#" className="hover:text-white">
+                  <Link href="/cookie-policy" className="hover:text-white">
                     Cookie Policy
                   </Link>
                 </li>
