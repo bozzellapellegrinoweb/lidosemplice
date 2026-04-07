@@ -132,12 +132,12 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="mb-1.5 block text-sm font-medium"
-              >
-                Password
-              </label>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label htmlFor="password" className="text-sm font-medium">Password</label>
+                <Link href="/auth/forgot-password" className="text-xs text-brand-azure hover:underline">
+                  Password dimenticata?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
