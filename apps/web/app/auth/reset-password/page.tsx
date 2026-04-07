@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,28 +10,39 @@ import { Lock, CheckCircle2, AlertCircle } from "lucide-react";
 
 function ResetPasswordContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(true);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
-  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Supabase invia il token nell'hash — il client SDK lo gestisce automaticamente
-    // al mount, basta aspettare che la sessione sia pronta
-    const supabase = createClient();
-    supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setReady(true);
+    async function verifyToken() {
+      const supabase = createClient();
+      const tokenHash = searchParams.get("token_hash");
+      const type = searchParams.get("type");
+
+      if (tokenHash && type === "recovery") {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: "recovery",
+        });
+        if (error) {
+          setError("Il link è scaduto o non valido. Richiedi un nuovo reset password.");
+        }
+      } else {
+        setError("Link non valido. Richiedi un nuovo reset password.");
       }
-    });
-  }, []);
+      setVerifying(false);
+    }
+    verifyToken();
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-
     if (password.length < 8) {
       setError("La password deve essere di almeno 8 caratteri.");
       return;
@@ -40,17 +51,14 @@ function ResetPasswordContent() {
       setError("Le password non coincidono.");
       return;
     }
-
     setLoading(true);
     const supabase = createClient();
     const { error: updateError } = await supabase.auth.updateUser({ password });
-
     if (updateError) {
       setError(updateError.message);
       setLoading(false);
       return;
     }
-
     setDone(true);
     setTimeout(() => router.push("/auth/login"), 2500);
   }
@@ -79,8 +87,13 @@ function ResetPasswordContent() {
           <CardTitle>Nuova password</CardTitle>
         </CardHeader>
         <CardContent>
-          {!ready ? (
+          {verifying ? (
             <p className="text-center text-sm text-muted-foreground">Verifica del link in corso…</p>
+          ) : error && !password ? (
+            <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-3 text-sm text-red-600">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
