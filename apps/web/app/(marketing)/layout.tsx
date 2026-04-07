@@ -36,7 +36,7 @@ export default function MarketingLayout({
               Demo
             </Link>
             <Link
-              href="#contatti"
+              href="/contatti"
               className="text-sm font-medium text-white/70 transition-colors hover:text-white"
             >
               Contatti
@@ -97,13 +97,8 @@ export default function MarketingLayout({
               </h3>
               <ul className="space-y-2 text-sm text-white/50">
                 <li>
-                  <Link href="#contatti" className="hover:text-white">
+                  <Link href="/contatti" className="hover:text-white">
                     Contatti
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#" className="hover:text-white">
-                    Guide
                   </Link>
                 </li>
               </ul>
