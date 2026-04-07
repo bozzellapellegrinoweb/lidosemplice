@@ -900,8 +900,8 @@ export default function ImpostazioniPage() {
             </label>
           </div>
 
-          {/* Stripe */}
-          <div className="rounded-lg border p-4 space-y-3">
+          {/* Stripe — Coming Soon */}
+          <div className="rounded-lg border border-dashed p-4 opacity-60">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#635bff]/10">
@@ -914,29 +914,8 @@ export default function ImpostazioniPage() {
                   <p className="text-sm text-muted-foreground">Visa, Mastercard, Google Pay, Apple Pay via Stripe.</p>
                 </div>
               </div>
-              {settings.stripe_onboarding_complete ? (
-                <label className="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" className="peer sr-only"
-                    checked={settings.payment_methods.stripe.enabled}
-                    onChange={(e) => updatePaymentMethod("stripe", "enabled", e.target.checked)} />
-                  <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
-                </label>
-              ) : (
-                <a
-                  href={`/api/stripe/connect/start?id=${settings.id}&slug=${settings.slug}`}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#635bff] px-4 py-2 text-sm font-semibold text-white hover:bg-[#5147e5] transition"
-                >
-                  <Link2 className="h-4 w-4" />
-                  Collega Stripe
-                </a>
-              )}
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">Presto disponibile</span>
             </div>
-            {settings.stripe_onboarding_complete && (
-              <div className="flex items-center gap-2 text-xs text-green-600">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Account Stripe collegato — i pagamenti arrivano direttamente a te.
-              </div>
-            )}
           </div>
 
           {/* PayPal */}
