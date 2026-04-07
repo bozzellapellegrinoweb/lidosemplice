@@ -214,10 +214,26 @@ export default function BookingPage() {
       .eq("establishment_id", estId);
     if (seasonsData) setSeasons(seasonsData);
 
-    const { data: rulesData } = await supabase
+    // Carica solo le regole della stagione attiva oggi
+    const today = new Date().toISOString().split("T")[0];
+    const { data: activeSeason } = await supabase
+      .from("seasons")
+      .select("id")
+      .eq("establishment_id", estId)
+      .lte("start_date", today)
+      .gte("end_date", today)
+      .order("start_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const rulesQuery = supabase
       .from("pricing_rules")
       .select("row_number, season_id, duration_type, price_cents")
       .eq("establishment_id", estId);
+
+    if (activeSeason) rulesQuery.eq("season_id", activeSeason.id);
+
+    const { data: rulesData } = await rulesQuery;
     if (rulesData) setPricingRules(rulesData as PricingRule[]);
 
     setLoading(false);

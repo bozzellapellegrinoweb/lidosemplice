@@ -228,12 +228,27 @@ export default function MappaPage() {
       }
     }
 
-    // Carica pricing rules (full_day) per mostrare prezzi sugli elementi
-    const { data: rules } = await supabase
+    // Carica la stagione attiva oggi e le sue pricing rules (full_day)
+    const today = new Date().toISOString().split("T")[0];
+    const { data: activeSeason } = await supabase
+      .from("seasons")
+      .select("id")
+      .eq("establishment_id", est.id)
+      .lte("start_date", today)
+      .gte("end_date", today)
+      .order("start_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const rulesQuery = supabase
       .from("pricing_rules")
       .select("row_number, price_cents, duration_type")
       .eq("establishment_id", est.id)
       .eq("duration_type", "full_day");
+
+    if (activeSeason) rulesQuery.eq("season_id", activeSeason.id);
+
+    const { data: rules } = await rulesQuery;
     setPricingRules(rules || []);
 
     await loadStatuses(est.id, selectedDate);
