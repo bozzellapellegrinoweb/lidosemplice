@@ -97,7 +97,7 @@ export default function MenuPage() {
       // 1. Establishment
       const { data: est, error: estErr } = await supabase
         .from("establishments")
-        .select("id, name, slug")
+        .select("id, name, slug, bar_enabled")
         .eq("slug", slug)
         .eq("is_active", true)
         .single();
@@ -107,6 +107,13 @@ export default function MenuPage() {
         setLoading(false);
         return;
       }
+
+      if (est.bar_enabled === false) {
+        setError("Il servizio bar non è disponibile in questo stabilimento.");
+        setLoading(false);
+        return;
+      }
+
       setEstablishment(est);
 
       // 2. Categories

@@ -35,8 +35,8 @@ const navigation = [
   { label: "Prezzi e stagioni",  href: "/prezzi",        icon: Euro,            permission: "pricing" },
   { label: "Servizi extra",      href: "/servizi",       icon: Package,         permission: "pricing" },
   { label: "Dipendenti",         href: "/dipendenti",    icon: Users,           permission: "admin" },
-  { label: "Menu bar",           href: "/menu-bar",      icon: Coffee,          permission: "bar_orders" },
-  { label: "Ordini bar",         href: "/ordini-bar",    icon: UtensilsCrossed, permission: "bar_orders" },
+  { label: "Menu bar",           href: "/menu-bar",      icon: Coffee,          permission: "bar_orders", requiresBar: true },
+  { label: "Ordini bar",         href: "/ordini-bar",    icon: UtensilsCrossed, permission: "bar_orders", requiresBar: true },
   { label: "Statistiche",        href: "/analytics",     icon: BarChart3,       permission: "analytics" },
   { label: "Impostazioni",       href: "/impostazioni",  icon: Settings,        permission: "settings" },
 ];
@@ -44,9 +44,10 @@ const navigation = [
 interface DashboardSidebarProps {
   role: string;
   permissions: Record<string, boolean>;
+  barEnabled: boolean;
 }
 
-export function DashboardSidebar({ role, permissions }: DashboardSidebarProps) {
+export function DashboardSidebar({ role, permissions, barEnabled }: DashboardSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -58,8 +59,9 @@ export function DashboardSidebar({ role, permissions }: DashboardSidebarProps) {
 
   const isAdmin = role === "admin";
 
-  // Filtra le voci in base al ruolo e ai permessi
+  // Filtra le voci in base al ruolo, ai permessi e al servizio bar
   const visibleNav = navigation.filter((item) => {
+    if ("requiresBar" in item && item.requiresBar && !barEnabled) return false;
     if (item.permission === null) return true;       // sempre visibile
     if (item.permission === "admin") return isAdmin; // solo admin
     if (isAdmin) return true;                        // admin vede tutto
