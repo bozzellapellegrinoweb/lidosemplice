@@ -114,7 +114,6 @@ export default function MenuPage() {
         .from("menu_categories")
         .select("*")
         .eq("establishment_id", est.id)
-        .eq("is_active", true)
         .order("sort_order");
 
       setCategories(cats ?? []);
