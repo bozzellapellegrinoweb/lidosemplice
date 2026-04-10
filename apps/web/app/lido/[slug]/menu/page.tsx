@@ -131,7 +131,7 @@ export default function MenuPage() {
           .from("menu_items")
           .select("*")
           .in("category_id", categoryIds)
-          .eq("is_available", true)
+          .neq("is_available", false)
           .order("sort_order");
 
         setItems(menuItems ?? []);
