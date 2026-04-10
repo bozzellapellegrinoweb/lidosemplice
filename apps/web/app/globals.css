@@ -107,6 +107,20 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Fix iOS Safari: input[type="date/email/tel"] non rispettano w-full
+   senza appearance reset e min-width: 0 */
+input[type="date"],
+input[type="email"],
+input[type="tel"],
+input[type="text"],
+input[type="password"],
+input[type="number"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  width: 100%;
+}
+
 /* Utility per gradiente brand (onde del logo) */
 .bg-brand-gradient {
   background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-mid), var(--color-gradient-end));
