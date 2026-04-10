@@ -323,7 +323,7 @@ export default function MenuPage() {
   /* ---------- Main render ---------- */
 
   return (
-    <div className="min-h-screen bg-background pb-40">
+    <div className="min-h-screen overflow-x-hidden bg-background pb-40">
       {/* Header */}
       <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
