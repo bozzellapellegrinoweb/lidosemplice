@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
+import { submitBarOrder } from "./actions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,38 +73,21 @@ export default function MenuClient({ establishment, categories, items }: Props) 
     setSubmitting(true);
     setOrderError(null);
 
-    const supabase = createClient();
-
-    const { data: order, error: orderErr } = await supabase
-      .from("bar_orders")
-      .insert({
-        establishment_id: establishment.id,
-        umbrella_label: umbrellaLabel.trim(),
-        guest_name: guestName.trim(),
-        status: "pending",
-        total_cents: cartTotal,
-        notes: notes.trim() || null,
-      })
-      .select("id")
-      .single();
-
-    if (orderErr || !order) {
-      setOrderError("Errore durante l'invio dell'ordine. Riprova.");
-      setSubmitting(false);
-      return;
-    }
-
-    const { error: itemsErr } = await supabase
-      .from("bar_order_items")
-      .insert(cartItems.map(ci => ({
-        bar_order_id: order.id,
+    const result = await submitBarOrder({
+      establishment_id: establishment.id,
+      umbrella_label: umbrellaLabel.trim(),
+      guest_name: guestName.trim(),
+      notes: notes.trim() || null,
+      total_cents: cartTotal,
+      items: cartItems.map(ci => ({
         menu_item_id: ci.menuItem.id,
         quantity: ci.quantity,
         price_cents: ci.menuItem.price_cents,
-      })));
+      })),
+    });
 
-    if (itemsErr) {
-      setOrderError("Errore nel salvataggio dei prodotti. Riprova.");
+    if (!result.success) {
+      setOrderError(result.error ?? "Errore durante l'invio dell'ordine.");
       setSubmitting(false);
       return;
     }
