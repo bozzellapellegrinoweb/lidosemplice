@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import {
   Save, Building2, Clock, Palette, CreditCard, Globe, ExternalLink,
   Loader2, Check, MapPin, Copy, CheckCircle2, Image as ImageIcon,
-  Upload, X, Star, Sparkles, Banknote, Wallet, Link2, Building, Coffee,
+  Upload, X, Star, Sparkles, Banknote, Wallet, Link2, Building,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { AMENITY_GROUPS, DEFAULT_AMENITIES, type AmenitiesData } from "@/lib/amenities";
@@ -59,7 +59,6 @@ interface EstablishmentSettings {
   payment_methods: PaymentMethods;
   stripe_account_id: string;
   stripe_onboarding_complete: boolean;
-  bar_enabled: boolean;
 }
 
 // ── Google Places Autocomplete ────────────────────────────────────────────────
@@ -317,7 +316,7 @@ export default function ImpostazioniPage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("establishments")
-        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude, logo_url, cover_image_url, gallery_photo_urls, amenities, payment_methods, stripe_account_id, stripe_onboarding_complete, bar_enabled")
+        .select("id, name, slug, description, address, city, province, cap, phone, email, website, check_in_time, check_out_time, primary_color, secondary_color, paypal_email, paypal_enabled, google_place_id, latitude, longitude, logo_url, cover_image_url, gallery_photo_urls, amenities, payment_methods, stripe_account_id, stripe_onboarding_complete")
         .eq("slug", slug)
         .single();
 
@@ -350,7 +349,6 @@ export default function ImpostazioniPage() {
           payment_methods: { ...DEFAULT_PAYMENT_METHODS, ...(data.payment_methods || {}) },
           stripe_account_id: data.stripe_account_id || "",
           stripe_onboarding_complete: data.stripe_onboarding_complete || false,
-          bar_enabled: data.bar_enabled ?? true,
         });
       }
       setLoading(false);
@@ -467,7 +465,6 @@ export default function ImpostazioniPage() {
         cover_image_url: settings.cover_image_url || null,
         gallery_photo_urls: settings.gallery_photo_urls,
         amenities: settings.amenities,
-        bar_enabled: settings.bar_enabled,
       })
       .eq("id", settings.id);
 
@@ -1138,36 +1135,6 @@ export default function ImpostazioniPage() {
             )}
           </div>
 
-        </CardContent>
-      </Card>
-
-      {/* ── Servizio Bar ── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Coffee className="h-5 w-5" />
-            Servizio Bar
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between rounded-lg border p-4">
-            <div>
-              <p className="font-medium">Abilita menu e ordini bar</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                Se attivo, i clienti possono ordinare dal bar direttamente dal proprio ombrellone.
-                La sezione &ldquo;Menu bar&rdquo; e &ldquo;Ordini bar&rdquo; appaiono nel pannello.
-              </p>
-            </div>
-            <label className="relative ml-6 inline-flex shrink-0 cursor-pointer items-center">
-              <input
-                type="checkbox"
-                className="peer sr-only"
-                checked={settings.bar_enabled}
-                onChange={(e) => updateField("bar_enabled", e.target.checked)}
-              />
-              <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white" />
-            </label>
-          </div>
         </CardContent>
       </Card>
 

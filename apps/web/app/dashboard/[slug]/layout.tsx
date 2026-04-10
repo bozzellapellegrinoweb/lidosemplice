@@ -23,7 +23,7 @@ export default async function EstablishmentLayout({ children, params }: Props) {
   // Verifica che lo stabilimento esista
   const { data: establishment } = await supabase
     .from("establishments")
-    .select("id, name, slug, owner_id, subscription_status, subscription_expires_at, bar_enabled")
+    .select("id, name, slug, owner_id, subscription_status, subscription_expires_at")
     .eq("slug", slug)
     .single();
 
@@ -82,7 +82,7 @@ export default async function EstablishmentLayout({ children, params }: Props) {
 
   return (
     <>
-      <DashboardSidebar role={role} permissions={permissions ?? {}} barEnabled={establishment.bar_enabled ?? true} />
+      <DashboardSidebar role={role} permissions={permissions ?? {}} />
       <main className="min-h-screen transition-all duration-300 lg:ml-[260px]">
         <div className="mx-auto max-w-7xl px-4 pb-6 pt-16 sm:px-6 lg:px-8 lg:pt-6">
           {/* Banner giorni trial rimasti */}

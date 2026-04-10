@@ -43,8 +43,6 @@ export default function MenuBarPage() {
   const slug = params.slug as string;
 
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
-  const [barEnabled, setBarEnabled] = useState(true);
-  const [togglingBar, setTogglingBar] = useState(false);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,13 +74,12 @@ export default function MenuBarPage() {
     const supabase = createClient();
     const { data: est } = await supabase
       .from("establishments")
-      .select("id, bar_enabled")
+      .select("id")
       .eq("slug", slug)
       .single();
 
     if (!est) return;
     setEstablishmentId(est.id);
-    setBarEnabled(est.bar_enabled ?? true);
 
     const [catResult, itemResult] = await Promise.all([
       supabase
@@ -116,21 +113,6 @@ export default function MenuBarPage() {
     }
 
     setLoading(false);
-  }
-
-  // --- Bar toggle ---
-
-  async function handleToggleBar() {
-    if (!establishmentId) return;
-    setTogglingBar(true);
-    const newValue = !barEnabled;
-    const supabase = createClient();
-    await supabase
-      .from("establishments")
-      .update({ bar_enabled: newValue })
-      .eq("id", establishmentId);
-    setBarEnabled(newValue);
-    setTogglingBar(false);
   }
 
   // --- Category CRUD ---
@@ -283,30 +265,6 @@ export default function MenuBarPage() {
           Nuova categoria
         </Button>
       </div>
-
-      {/* Bar enabled toggle */}
-      <Card className={barEnabled ? "" : "border-orange-200 bg-orange-50"}>
-        <CardContent className="flex items-center justify-between p-4">
-          <div>
-            <p className="font-medium">Servizio bar</p>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {barEnabled
-                ? "Attivo — i clienti possono ordinare dal proprio ombrellone."
-                : "Disattivato — il menu non è visibile ai clienti."}
-            </p>
-          </div>
-          <label className="relative ml-6 inline-flex shrink-0 cursor-pointer items-center">
-            <input
-              type="checkbox"
-              className="peer sr-only"
-              checked={barEnabled}
-              disabled={togglingBar}
-              onChange={handleToggleBar}
-            />
-            <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-azure peer-checked:after:translate-x-full peer-checked:after:border-white peer-disabled:opacity-50" />
-          </label>
-        </CardContent>
-      </Card>
 
       {/* Add category form */}
       {showAddCategory && (
