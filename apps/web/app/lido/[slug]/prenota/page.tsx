@@ -553,7 +553,7 @@ export default function BookingPage() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-background">
+    <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">

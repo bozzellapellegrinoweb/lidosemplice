@@ -315,7 +315,7 @@ export default function LidoPageClient({ establishment, services, rows, beachMap
   const galleryPhotos = establishment.gallery_photo_urls || [];
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-white">
+    <div className="min-h-screen bg-white">
 
       {/* ── Sticky Nav ── */}
       <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-white shadow-md" : "bg-transparent"}`}>
