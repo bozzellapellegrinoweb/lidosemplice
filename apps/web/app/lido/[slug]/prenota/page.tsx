@@ -557,14 +557,14 @@ export default function BookingPage() {
       {/* Header */}
       <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <Link
               href={`/lido/${slug}`}
-              className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-muted"
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <h1 className="text-lg font-bold">Prenota — {establishmentName}</h1>
+            <h1 className="truncate text-base font-bold sm:text-lg">Prenota — {establishmentName}</h1>
           </div>
 
           <div className="hidden items-center gap-2 sm:flex">
@@ -597,7 +597,7 @@ export default function BookingPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="mx-auto max-w-6xl px-4 py-6 pb-28 lg:pb-6">
         <div className={`grid gap-6 ${step === 1 ? "" : "lg:grid-cols-[1fr_320px]"}`}>
           <div>
             {step === 1 && (
@@ -821,11 +821,11 @@ export default function BookingPage() {
                         const itemLabel = ELEMENT_LABELS[item.elementType] || "Ombrellone";
                         const capLabel = ELEMENT_CAP_LABELS[item.elementType] || "lettini";
                         return (
-                        <div key={item.id} className="flex items-center justify-between rounded-lg border p-3">
-                          <div className="flex items-center gap-2">
-                            <ItemIcon className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium">{itemLabel} {item.label}</span>
-                            <span className="text-sm text-muted-foreground">{item.rowLabel}</span>
+                        <div key={item.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <ItemIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="truncate font-medium">{itemLabel} {item.label}</span>
+                            <span className="shrink-0 text-sm text-muted-foreground">{item.rowLabel}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <button
@@ -1117,6 +1117,28 @@ export default function BookingPage() {
           </div>}
         </div>
       </div>
+
+      {/* Barra azione sticky — solo mobile, step 2 e 3 */}
+      {step > 1 && step < 4 && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 px-4 py-3 backdrop-blur-sm lg:hidden">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Totale stimato</p>
+              <p className="text-lg font-bold">{total > 0 ? `${total}\u20AC` : "\u2014"}</p>
+            </div>
+            <Button
+              variant="brand"
+              size="lg"
+              className="flex-1"
+              disabled={step === 2 && selectedItems.length === 0}
+              onClick={() => setStep(step + 1)}
+            >
+              Continua
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
