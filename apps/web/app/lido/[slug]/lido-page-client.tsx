@@ -31,6 +31,7 @@ interface Establishment {
   latitude?: string;
   longitude?: string;
   google_place_id?: string;
+  bar_enabled?: boolean;
 }
 
 interface Service {
@@ -332,10 +333,12 @@ export default function LidoPageClient({ establishment, services, rows, beachMap
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Link href={menuUrl} className="flex items-center gap-2 rounded-full border border-white/40 px-4 py-2 text-sm font-semibold transition hover:bg-white/20 active:scale-95" style={{ color: scrolled ? secondary : "white" }}>
-              <UtensilsCrossed className="h-4 w-4" />
-              Bar
-            </Link>
+            {establishment.bar_enabled !== false && (
+              <Link href={menuUrl} className="flex items-center gap-2 rounded-full border border-white/40 px-4 py-2 text-sm font-semibold transition hover:bg-white/20 active:scale-95" style={{ color: scrolled ? secondary : "white" }}>
+                <UtensilsCrossed className="h-4 w-4" />
+                Bar
+              </Link>
+            )}
             <Link href={bookingUrl} className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:opacity-90 active:scale-95" style={{ backgroundColor: primary }}>
               <Calendar className="h-4 w-4" />
               Prenota ora
@@ -624,10 +627,12 @@ export default function LidoPageClient({ establishment, services, rows, beachMap
                   </Link>
                 </div>
                 <p className="text-center text-xs text-gray-400">Nessuna commissione · Conferma immediata</p>
-                <Link href={menuUrl} className="flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold transition hover:bg-gray-50 active:scale-95" style={{ color: secondary, borderColor: secondary + "40" }}>
-                  <UtensilsCrossed className="h-4 w-4" />
-                  Ordina dal bar
-                </Link>
+                {establishment.bar_enabled !== false && (
+                  <Link href={menuUrl} className="flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold transition hover:bg-gray-50 active:scale-95" style={{ color: secondary, borderColor: secondary + "40" }}>
+                    <UtensilsCrossed className="h-4 w-4" />
+                    Ordina dal bar
+                  </Link>
+                )}
               </div>
             </div>
 
