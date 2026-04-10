@@ -123,14 +123,13 @@ export default function MenuPage() {
         setActiveCategory(cats[0].id);
       }
 
-      // 3. Items (only available)
+      // 3. Items
       const categoryIds = (cats ?? []).map((c) => c.id);
       if (categoryIds.length > 0) {
         const { data: menuItems } = await supabase
           .from("menu_items")
           .select("*")
           .in("category_id", categoryIds)
-          .eq("is_available", true)
           .order("sort_order");
 
         setItems(menuItems ?? []);
